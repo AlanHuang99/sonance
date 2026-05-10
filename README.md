@@ -1,0 +1,198 @@
+# Sonance
+
+A native macOS client for [Navidrome](https://www.navidrome.org/), built in SwiftUI.
+
+Inspired by [Feishin](https://github.com/jeffvli/feishin) (functionality) and motivated by the
+fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on macOS.
+
+## What works
+
+- Sign-in to a Navidrome / Subsonic-API server (salted-MD5 token auth)
+- **Albums** — grid view backed by `getAlbumList2`. Sort menu: A–Z / Newest / Recently Played /
+  Most Played / Random. Heart overlay shows favorited albums. Right-click for Play / Play Next /
+  Add to Queue / Toggle Favorite.
+- **Artists** — alphabetical list; click to see their albums
+- **Songs** — random sample from `getRandomSongs` (Shuffle to refresh)
+- **Playlists** — read view of all server playlists, with **smart-playlist (NSP) detection**:
+  Navidrome marks .nsp-derived playlists with `readonly: true` and `comment: "Auto-imported from
+  '*.nsp'"`; both surface with a sparkles icon and a yellow "Smart" badge.
+- **Favorites** — sidebar section with Songs / Albums / Artists tabs, backed by `getStarred2`.
+  Heart buttons across the app toggle star/unstar via the Subsonic API; state stays in sync via
+  a global `FavoritesStore`.
+- **Search** — debounced search3 across artists, albums, and songs
+
+### Playback
+
+- AVPlayer-based streaming with auto-advance to the next track
+- Queue: Play, Play Next, Add to Queue, Reorder, Remove, Clear, Play From Queue (jump-to)
+- Shuffle (preserves the current track at index 0; Un-shuffle restores original order)
+- Repeat: Off / All / One
+- Submission scrobble at 50% (or 4 minutes), now-playing scrobble at start, via Subsonic `scrobble`
+- Synced lyrics via OpenSubsonic `getLyricsBySongId` — current line highlighted, auto-scrolls,
+  click any line to seek there
+
+### Mini-player and Now Playing
+
+- Bottom mini-player: cover, title/artist, heart, shuffle, prev/play-pause/next, repeat,
+  scrubber + time, volume slider
+- Click the cover thumbnail to **slide up an inline Now Playing panel** (not a separate window or
+  modal sheet — it animates up within the same window over the library content, with a translucent
+  blur background). Press **Esc** or click the chevron at the top-right to slide it back down.
+- Now Playing layout: large cover, transport, scrubber, shuffle/repeat/heart row, plus tabbed
+  right pane with **Queue** (drag to reorder, double-click to jump, right-click for Remove) and
+  **Lyrics** (synced when available, click any line to seek there).
+
+### Keyboard shortcuts
+
+- **Space** — play / pause (when no text field has focus)
+- **⌘P** — play / pause (always)
+- **⌘→ / ⌘←** — next / previous track
+
+### Persistence
+
+- Server URL / username / password live in **macOS Keychain** (with one-shot migration from
+  any prior UserDefaults entry).
+- The current queue + queue index + current time + shuffle/repeat state + volume are saved to
+  `UserDefaults` every 3 seconds and on every queue mutation. On launch, the mini-player shows
+  the last track in a **paused** state at the correct scrubber position; press Play (or Space)
+  to load the AVPlayerItem, seek to the saved time, and resume.
+
+### Window + menu bar behavior
+
+- Closing the window **does not quit the app** (`NSApplicationDelegate.applicationShouldTerminateAfterLastWindowClosed`
+  returns `false`). Reopen by clicking the dock icon or via the menu bar item.
+- An `NSStatusItem` is registered with `autosaveName = "SonanceStatusItem"` showing a music-note
+  glyph that toggles to a play-circle when something's playing. Clicking it opens an `NSPopover`
+  with the current track, prev/play/next, "Show Sonance", and "Quit". A toggle in the **Sonance > Settings**
+  menu (`Show Menu Bar Icon`) lets you hide it.
+- **Known limitation on macOS Tahoe (26)**: the menu bar collapses overflow items behind a `…`
+  button when the bar is full. If you have a lot of menu bar utilities (Dropbox, Stage Manager,
+  Focus, AirPods indicator, Bartender, etc.) the Sonance icon may sit behind that overflow.
+  Click the `…` to find it, or remove items from the menu bar via System Settings → Control
+  Center to free space.
+
+### Sign Out
+
+The Sign Out button is no longer in the window toolbar. It lives at the bottom of the sidebar
+in a server-info chip showing the current host and username, with a menu offering "Refresh
+Favorites" and "Sign Out". This matches the pattern in apps like Linear / Notion / Slack.
+
+## Feature parity vs. [vscode-subsonic-player](https://github.com/AlanHuang99/vscode-subsonic-player)
+
+| Capability | vscode-subsonic-player | Sonance |
+|---|---|---|
+| Library browsing (recent / random / most-played albums) | ✅ | ✅ (sort menu) |
+| Favorite songs view | ✅ | ✅ |
+| Album / Playlist detail with play actions | ✅ | ✅ |
+| Smart playlist (NSP) read | ✅ (Navidrome native API) | ✅ (Subsonic readonly + .nsp comment detection) |
+| Queue: Play Now / Play Next / Add to Queue / Reorder / Remove / Clear | ✅ | ✅ |
+| Favorites for tracks and albums | ✅ | ✅ (also artists) |
+| Synced lyrics with click-to-seek | ✅ | ✅ |
+| Search | ✅ | ✅ (debounced) |
+| Random songs | ✅ | ✅ |
+| Repeat / Shuffle | ✅ | ✅ |
+| Volume control | ✅ | ✅ |
+| Keyboard shortcuts (play/pause, next, prev) | ✅ | ✅ |
+| Scrobbling (submission to Navidrome history) | — | ✅ |
+| Multiple servers | ✅ | ❌ (single server) |
+| Keychain credential storage | ✅ | ✅ |
+| Persistent queue across launches | ❌ | ✅ |
+| Refresh Library command | ✅ | partial (per-view reload) |
+
+## What doesn't work yet
+
+- Smart-playlist editing — the Subsonic API doesn't expose .nsp rule editing; this is a Navidrome
+  limitation (Feishin and Supersonic have the same constraint). Editing requires writing the
+  .nsp file or using Navidrome's web UI.
+- Regular playlist editing (add/remove tracks, reorder)
+- Lyrics, sleep timer, volume control in the mini-player, AirPlay, scrobbling
+- Keychain credential storage (currently UserDefaults; there's a `// TODO: move to Keychain`)
+- Persistent queue across app restarts
+
+## Build
+
+```sh
+brew install xcodegen
+cd Sonance
+xcodegen generate
+open Sonance.xcodeproj
+```
+
+For a one-shot ad-hoc build from the command line (no signing required):
+
+```sh
+xcodegen generate
+xcodebuild \
+  -project Sonance.xcodeproj \
+  -scheme Sonance -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath build \
+  CODE_SIGN_IDENTITY="-" \
+  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+
+open build/Build/Products/Debug/Sonance.app
+```
+
+You don't need a paid Apple Developer ID for personal use. The Personal Team development cert that
+Xcode auto-creates from any Apple ID is enough; ad-hoc-signed builds run indefinitely on macOS
+(unlike iOS, the 7-day cert expiry doesn't apply).
+
+## Project layout
+
+```
+Sonance/
+  SonanceApp.swift          # @main, hosts Auth + Player as @StateObject
+  ContentView.swift         # routes login vs library, places MiniPlayerBar via safeAreaInset
+  Auth/                     # ServerCredentials, AuthStore (login state + persistence)
+  Networking/               # SubsonicClient (URL building, auth tokens), SubsonicError
+  Models/                   # Decodable Subsonic response types
+  Playback/Player.swift     # AVPlayer wrapper, queue, time/end observers
+  Views/
+    LoginView.swift
+    LibraryView.swift       # NavigationSplitView host with sidebar
+    AlbumsView.swift        # grid + AlbumTile
+    AlbumDetailView.swift   # cover/title/play + track list (uses TrackListView)
+    ArtistsView.swift       # list + ArtistDetailView (their albums)
+    SongsView.swift         # random songs sample
+    PlaylistsView.swift     # split view: list of playlists + selected detail
+    SearchView.swift        # debounced search across types
+    TrackListView.swift     # shared track list with double-click-to-play
+    MiniPlayerBar.swift     # bottom bar with transport + scrubber
+  Assets.xcassets/
+    AppIcon.appiconset/     # generated by tools/make_icon.swift
+    AccentColor.colorset/
+  Sonance.entitlements      # sandbox + network client
+  Info.plist                # generated by xcodegen; ATS allows arbitrary loads (HTTP servers OK)
+tools/
+  make_icon.swift           # CoreGraphics icon renderer; outputs all required AppIcon sizes
+project.yml                 # XcodeGen project config
+```
+
+## Subsonic / Navidrome notes
+
+- All API calls go through `SubsonicClient`. Auth uses the salted-MD5 token form (`u`, `t`, `s`)
+  with a fresh salt per request, not plaintext passwords on the wire.
+- The decoder uses a generic `SubsonicEnvelope<Body>` that decodes the body alongside `status` /
+  `version` / `error` from the same JSON level — each endpoint just declares its own response
+  type with its specific top-level field (`albumList2`, `playlists`, etc.).
+- Streaming uses `getStream?id=...` URLs which are self-authenticating via query params, so
+  AVPlayer can use them directly without custom URL session work.
+- Cover art uses `getCoverArt?id=...&size=N`; the detail view requests size 400, the mini-player
+  requests size 96, and grid tiles use the default 300.
+- ATS in `Info.plist` has `NSAllowsArbitraryLoads = true` because most Navidrome installs are on
+  plaintext HTTP behind a LAN; remove that if your server is HTTPS-only.
+
+## Hard-won SwiftUI lessons baked into this codebase
+
+- `List(data, selection:)` does **not** drive the selection binding reliably on macOS when `data`
+  is `Identifiable`. Always use `List(selection:) { ForEach(items, id: \.self) { ... } }` for
+  selectable sidebars and lists. Burned three iterations on this; see
+  `Views/LibraryView.swift` and `Views/PlaylistsView.swift`.
+- Synthetic mouse events via CGEvent / cliclick / osascript-click *can* hit a SwiftUI list row
+  and trigger hover, but won't update a selection binding if that binding is broken. If clicks
+  "don't change selection," check the binding pattern first before debugging the input layer.
+- `@MainActor` `ObservableObject`s with `@Published` properties from `Combine` are the simplest
+  way to plumb playback state into SwiftUI views. AVPlayer's periodic time observer needs a
+  `Task { @MainActor in ... }` hop because it calls back on a queue you specify.
