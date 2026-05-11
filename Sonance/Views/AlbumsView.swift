@@ -121,9 +121,7 @@ struct AlbumTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SmoothCoverImage(
-                url: album.coverArt.flatMap { client?.coverArtURL(id: $0) }
-            )
+            CoverArtImage(coverArtID: album.coverArt, size: 300, client: client)
             .aspectRatio(1, contentMode: .fit)
             .overlay(alignment: .topTrailing) {
                 if isFavorite {

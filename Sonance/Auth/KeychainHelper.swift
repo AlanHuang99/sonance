@@ -2,7 +2,9 @@ import Foundation
 import Security
 
 enum KeychainHelper {
-    static let service = "com.example.Sonance"
+    static var service: String {
+        Bundle.main.bundleIdentifier ?? "com.alanhuang.Sonance"
+    }
 
     static func save(account: String, data: Data) -> Bool {
         let query: [String: Any] = [

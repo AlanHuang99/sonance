@@ -45,7 +45,9 @@ struct ArtistRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            cover.frame(width: 36, height: 36).clipShape(Circle())
+            CoverArtImage(coverArtID: artist.coverArt, size: 96, client: client, corner: 18, glyph: "person")
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(artist.name)
                 if let count = artist.albumCount {
@@ -55,23 +57,6 @@ struct ArtistRow: View {
         }
     }
 
-    @ViewBuilder
-    private var cover: some View {
-        if let coverID = artist.coverArt, let url = client?.coverArtURL(id: coverID, size: 96) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image): image.resizable().scaledToFill()
-                default: placeholder
-                }
-            }
-        } else {
-            placeholder
-        }
-    }
-
-    private var placeholder: some View {
-        Circle().fill(.quaternary).overlay(Image(systemName: "person").foregroundStyle(.secondary))
-    }
 }
 
 struct ArtistDetailView: View {

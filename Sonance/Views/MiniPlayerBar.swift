@@ -99,10 +99,7 @@ struct MiniPlayerBar: View {
     }
 
     private func cover(for song: Song) -> some View {
-        SmoothCoverImage(
-            url: song.coverArt.flatMap { auth.client?.coverArtURL(id: $0, size: 96) },
-            corner: 4
-        )
+        CoverArtImage(coverArtID: song.coverArt, size: 96, client: auth.client, corner: 4)
     }
 
     private func formatTime(_ seconds: TimeInterval) -> String {

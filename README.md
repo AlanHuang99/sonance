@@ -51,7 +51,8 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 ### Persistence
 
 - Server URL / username / password live in **macOS Keychain** (with one-shot migration from
-  any prior UserDefaults entry).
+  any prior UserDefaults entry). Debug builds use `UserDefaults` instead and include a local
+  test-server preset so iterative rebuilds do not repeatedly prompt for Keychain access.
 - The current queue + queue index + current time + shuffle/repeat state + volume are saved to
   `UserDefaults` every 3 seconds and on every queue mutation. On launch, the mini-player shows
   the last track in a **paused** state at the correct scrubber position; press Play (or Space)
@@ -75,7 +76,8 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 
 The Sign Out button is no longer in the window toolbar. It lives at the bottom of the sidebar
 in a server-info chip showing the current host and username, with a menu offering "Refresh
-Favorites" and "Sign Out". This matches the pattern in apps like Linear / Notion / Slack.
+Favorites", account switching, "Connect Another Server", and "Forget This Account". This matches
+the pattern in apps like Linear / Notion / Slack.
 
 ## Feature parity vs. [vscode-subsonic-player](https://github.com/AlanHuang99/vscode-subsonic-player)
 
@@ -94,7 +96,7 @@ Favorites" and "Sign Out". This matches the pattern in apps like Linear / Notion
 | Volume control | ✅ | ✅ |
 | Keyboard shortcuts (play/pause, next, prev) | ✅ | ✅ |
 | Scrobbling (submission to Navidrome history) | — | ✅ |
-| Multiple servers | ✅ | ❌ (single server) |
+| Multiple servers | ✅ | ✅ (saved accounts + switcher) |
 | Keychain credential storage | ✅ | ✅ |
 | Persistent queue across launches | ❌ | ✅ |
 | Refresh Library command | ✅ | partial (per-view reload) |
@@ -105,15 +107,12 @@ Favorites" and "Sign Out". This matches the pattern in apps like Linear / Notion
   limitation (Feishin and Supersonic have the same constraint). Editing requires writing the
   .nsp file or using Navidrome's web UI.
 - Regular playlist editing (add/remove tracks, reorder)
-- Lyrics, sleep timer, volume control in the mini-player, AirPlay, scrobbling
-- Keychain credential storage (currently UserDefaults; there's a `// TODO: move to Keychain`)
-- Persistent queue across app restarts
+- Sleep timer, AirPlay
 
 ## Build
 
 ```sh
 brew install xcodegen
-cd Sonance
 xcodegen generate
 open Sonance.xcodeproj
 ```
@@ -127,17 +126,62 @@ xcodebuild \
   -scheme Sonance -configuration Debug \
   -destination 'platform=macOS' \
   -derivedDataPath build \
-  CODE_SIGN_IDENTITY="-" \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGNING_ALLOWED=NO \
   build
 
 open build/Build/Products/Debug/Sonance.app
 ```
 
-You don't need a paid Apple Developer ID for personal use. The Personal Team development cert that
-Xcode auto-creates from any Apple ID is enough; ad-hoc-signed builds run indefinitely on macOS
-(unlike iOS, the 7-day cert expiry doesn't apply).
+If local network or keychain permission prompts are annoying during development, prefer a signed run from Xcode (or `xcodebuild` without forcing ad-hoc signing) so the app retains trusted OS grants between rebuilds.
+
+For an easy local workflow:
+
+```sh
+./bin/dev.sh
+```
+
+## Installable releases
+
+Releases are published from Git tags by GitHub Actions. A tag like `v0.1.0` builds a Release
+app, signs it with a Developer ID Application certificate, submits it to Apple notarization,
+staples the notarization ticket, then publishes both:
+
+- `Sonance-v0.1.0.dmg` — easiest install path; open and drag Sonance to Applications
+- `Sonance-v0.1.0.zip` — same notarized app as a zip
+
+Required repository secrets:
+
+- `MACOS_CERT_P12_BASE64` — base64-encoded Developer ID Application `.p12`
+- `MACOS_CERT_P12_PASSWORD` — password for that `.p12`
+- `MACOS_KEYCHAIN_PASSWORD` — temporary CI keychain password
+- `MACOS_NOTARY_API_KEY_P8_BASE64` — base64-encoded App Store Connect API key `.p8`
+- `MACOS_NOTARY_API_KEY_ID` — API key ID
+- `MACOS_NOTARY_ISSUER_ID` — App Store Connect issuer ID
+
+Helpful encoding commands:
+
+```sh
+base64 -i DeveloperIDApplication.p12 | pbcopy
+base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
+```
+
+Once the secrets are set, publish a release by pushing a version tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Local unsigned release build:
+
+```sh
+./scripts/build-release-app.sh 0.1.0-local 1
+```
+
+Local DMG packaging from that build:
+
+```sh
+./scripts/make-dmg.sh build/Build/Products/Release/Sonance.app build/Sonance-local.dmg
+```
 
 ## Project layout
 

@@ -106,6 +106,10 @@ final class SubsonicClient: @unchecked Sendable {
         try? buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
     }
 
+    func coverArtCacheKey(id: String, size: Int = 300) -> String {
+        "\(credentials.accountID)|cover|\(id)|\(size)"
+    }
+
     private func get<T: Decodable>(_ endpoint: String, params: [String: String]) async throws -> T {
         let url = try buildURL(endpoint: endpoint, params: params)
         let (data, _) = try await urlSession.data(from: url)

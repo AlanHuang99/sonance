@@ -12,6 +12,7 @@ struct ContentView: View {
             if auth.isLoggedIn {
                 ZStack(alignment: .bottom) {
                     LibraryView()
+                        .id(auth.activeAccountID ?? "signed-in")
                         .safeAreaInset(edge: .bottom, spacing: 0) {
                             MiniPlayerBar(showingNowPlaying: $showingNowPlaying)
                         }

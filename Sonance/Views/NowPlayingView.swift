@@ -150,10 +150,7 @@ struct NowPlayingView: View {
     }
 
     private func cover(for song: Song) -> some View {
-        SmoothCoverImage(
-            url: song.coverArt.flatMap { auth.client?.coverArtURL(id: $0, size: 600) },
-            corner: 8
-        )
+        CoverArtImage(coverArtID: song.coverArt, size: 600, client: auth.client, corner: 8)
     }
 
     private func formatTime(_ s: TimeInterval) -> String {

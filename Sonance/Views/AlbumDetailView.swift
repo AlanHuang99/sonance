@@ -65,9 +65,7 @@ struct AlbumDetailView: View {
     }
 
     private var cover: some View {
-        SmoothCoverImage(
-            url: album.coverArt.flatMap { auth.client?.coverArtURL(id: $0, size: 400) }
-        )
+        CoverArtImage(coverArtID: album.coverArt, size: 400, client: auth.client)
     }
 
     @ViewBuilder

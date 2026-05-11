@@ -1,6 +1,6 @@
 name: Sonance
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.alanhuang
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -15,18 +15,24 @@ targets:
       properties:
         CFBundleName: Sonance
         CFBundleDisplayName: Sonance
-        CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.music
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: ""
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Sonance needs local network access to connect to your Navidrome/Subsonic server on your LAN.
+        NSBonjourServices:
+          - _http._tcp
+          - _https._tcp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.Sonance
+        PRODUCT_BUNDLE_IDENTIFIER: com.alanhuang.Sonance
         PRODUCT_NAME: Sonance
         SWIFT_VERSION: "5.9"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic

@@ -9,10 +9,7 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let song = player.currentSong {
                 HStack(spacing: 10) {
-                    SmoothCoverImage(
-                        url: song.coverArt.flatMap { auth.client?.coverArtURL(id: $0, size: 96) },
-                        corner: 4
-                    )
+                    CoverArtImage(coverArtID: song.coverArt, size: 96, client: auth.client, corner: 4)
                     .frame(width: 44, height: 44)
 
                     VStack(alignment: .leading, spacing: 2) {

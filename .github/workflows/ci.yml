@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build Debug
+        run: |
+          xcodebuild \
+            -project Sonance.xcodeproj \
+            -scheme Sonance \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build Release app
+        run: ./scripts/build-release-app.sh 0.1.0-ci "$GITHUB_RUN_NUMBER"
+
+      - name: Verify bundle
+        run: |
+          test -f build/Build/Products/Release/Sonance.app/Contents/MacOS/Sonance
+          plutil -lint build/Build/Products/Release/Sonance.app/Contents/Info.plist
+          lipo -info build/Build/Products/Release/Sonance.app/Contents/MacOS/Sonance

@@ -42,7 +42,7 @@ struct SearchView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let artists = r.artist, !artists.isEmpty {
-                        sectionHeader("Artists")
+                        sectionHeader("Artists", count: artists.count)
                         ForEach(artists) { artist in
                             NavigationLink(value: artist) {
                                 ArtistRow(artist: artist, client: auth.client)
@@ -53,7 +53,7 @@ struct SearchView: View {
                         }
                     }
                     if let albums = r.album, !albums.isEmpty {
-                        sectionHeader("Albums")
+                        sectionHeader("Albums", count: albums.count)
                         let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(albums) { album in
@@ -63,7 +63,7 @@ struct SearchView: View {
                         .padding(.horizontal, 20)
                     }
                     if let songs = r.song, !songs.isEmpty {
-                        sectionHeader("Songs")
+                        sectionHeader("Songs", count: songs.count)
                         TrackListView(songs: songs, onPlay: { idx in
                             if let client = auth.client {
                                 player.play(songs, startAt: idx, using: client)
@@ -80,8 +80,8 @@ struct SearchView: View {
         }
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        Text("\(title) (\(count))")
             .font(.headline)
             .padding(.horizontal, 20)
     }
