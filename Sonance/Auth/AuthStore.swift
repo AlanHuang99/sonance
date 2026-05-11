@@ -58,6 +58,28 @@ final class AuthStore: ObservableObject {
         }
     }
 
+    func testConnection(_ creds: ServerCredentials) async -> String? {
+        let candidate = SubsonicClient(credentials: creds)
+        do {
+            try await candidate.ping()
+            return nil
+        } catch let error as SubsonicError {
+            return error.message
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func saveAccount(_ creds: ServerCredentials) {
+        upsertAccount(creds)
+        lastError = nil
+    }
+
+    func connectSavedAccount(id: ServerAccount.ID) async {
+        guard let account = savedAccounts.first(where: { $0.id == id }) else { return }
+        await signIn(account.credentials)
+    }
+
     func switchToAccount(id: ServerAccount.ID) {
         guard let account = savedAccounts.first(where: { $0.id == id }) else { return }
         credentials = account.credentials

@@ -7,6 +7,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
     case playlists = "Playlists"
     case favorites = "Favorites"
     case search = "Search"
+    case accounts = "Accounts"
 
     var id: String { rawValue }
 
@@ -18,6 +19,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
         case .playlists: return "music.note.list"
         case .favorites: return "heart.fill"
         case .search: return "magnifyingglass"
+        case .accounts: return "person.crop.circle.badge.gearshape"
         }
     }
 }
@@ -84,6 +86,7 @@ struct LibraryView: View {
                 case .playlists: PlaylistsView()
                 case .favorites: FavoritesView()
                 case .search: SearchView()
+                case .accounts: AccountManagementView()
                 case .none: PlaceholderView(title: "Select a section")
                 }
             }

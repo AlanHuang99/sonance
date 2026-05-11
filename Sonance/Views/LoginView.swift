@@ -12,7 +12,11 @@ struct LoginView: View {
     @State private var password = ""
     #endif
     @State private var isSubmitting = false
+    @State private var isTesting = false
     @State private var hasTriedRestore = false
+    @State private var selectedAccountID: ServerAccount.ID?
+    @State private var statusMessage: String?
+    @State private var statusIsError = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -45,13 +49,15 @@ struct LoginView: View {
 
                     if !auth.savedAccounts.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Saved Accounts")
+                            Text("Saved Servers")
                                 .font(.headline)
                             ForEach(auth.savedAccounts) { account in
                                 SavedAccountRow(account: account, presetID: auth.testServerAccountID) { id in
                                     toggleTestServerPreset(id)
-                                } onSelect: {
-                                    auth.switchToAccount(id: account.id)
+                                } onEdit: {
+                                    load(account)
+                                } onConnect: {
+                                    connectSaved(account.id)
                                 } onForget: {
                                     auth.forgetAccount(id: account.id)
                                 }
@@ -61,7 +67,7 @@ struct LoginView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Add Server")
+                        Text(selectedAccountID == nil ? "Add Server" : "Edit Server")
                             .font(.headline)
                         TextField("https://music.example.com", text: $serverURL)
                             .textFieldStyle(.roundedBorder)
@@ -83,16 +89,40 @@ struct LoginView: View {
                             .frame(maxWidth: 360, alignment: .leading)
                     }
 
-                    Button(action: submit) {
-                        if isSubmitting {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text("Connect").frame(maxWidth: 120)
-                        }
+                    if let statusMessage {
+                        Label(statusMessage, systemImage: statusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(statusIsError ? .red : .green)
+                            .font(.callout)
+                            .frame(maxWidth: 360, alignment: .leading)
                     }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isBusy || serverURL.isEmpty || username.isEmpty || password.isEmpty)
+
+                    HStack(spacing: 10) {
+                        Button(action: testForm) {
+                            if isTesting {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Test", systemImage: "network")
+                            }
+                        }
+                        .disabled(isBusy || !canSubmit)
+
+                        Button(action: saveForm) {
+                            Label("Save", systemImage: "tray.and.arrow.down")
+                        }
+                        .disabled(isBusy || !canSubmit)
+
+                        Button(action: submit) {
+                            if isSubmitting {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Connect", systemImage: "arrow.right.circle")
+                            }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isBusy || !canSubmit)
+                    }
+                    .frame(maxWidth: 360, alignment: .leading)
                 }
                 .padding(44)
             }
@@ -111,61 +141,51 @@ struct LoginView: View {
         let account: ServerAccount
         let presetID: String?
         let onSetPreset: (ServerAccount.ID) -> Void
-        let onSelect: () -> Void
+        let onEdit: () -> Void
+        let onConnect: () -> Void
         let onForget: () -> Void
 
         var body: some View {
             let isPreset = presetID == account.id
-            let presetImage = isPreset ? "pin.fill" : "pin"
-            let presetStyle = isPreset ? Color.yellow : Color(nsColor: .tertiaryLabelColor)
-            let presetHelp = isPreset ? "Unset test server" : "Set as test server"
 
-            HStack(spacing: 10) {
-                Button(action: onSelect) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "server.rack")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 22)
-                        VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "server.rack")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
                             Text(account.credentials.displayHost)
-                                .lineLimit(1)
-                            Text(account.credentials.username)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .fontWeight(.medium)
                                 .lineLimit(1)
                             if isPreset {
-                                Text("Default test server")
+                                Text("Default")
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.yellow.opacity(0.22), in: Capsule())
                             }
                         }
-                        Spacer()
-                        Image(systemName: "arrow.right")
-                            .foregroundStyle(.tertiary)
+                        Text(account.credentials.username)
                             .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .contentShape(Rectangle())
+                    Spacer()
                 }
-                .buttonStyle(.plain)
 
-                Button(action: onForget) {
-                    Image(systemName: "trash")
-                        .foregroundStyle(.red)
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-                .help("Forget this account")
+                HStack(spacing: 8) {
+                    Button("Connect", action: onConnect)
+                    Button("Edit", action: onEdit)
 
-                Button {
-                    onSetPreset(account.id)
-                } label: {
-                    Image(systemName: presetImage)
-                        .foregroundStyle(presetStyle)
-                        .font(.title3)
+                    Button(isPreset ? "Default" : "Make Default") {
+                        onSetPreset(account.id)
+                    }
+                    .disabled(isPreset)
+
+                    Button("Delete", role: .destructive, action: onForget)
                 }
-                .buttonStyle(.plain)
-                .help(presetHelp)
+                .font(.caption)
             }
             .padding(10)
             .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
@@ -174,12 +194,53 @@ struct LoginView: View {
 
     private func submit() {
         isSubmitting = true
+        statusMessage = nil
         Task {
-            await auth.signIn(ServerCredentials(
-                serverURL: serverURL,
-                username: username,
-                password: password
-            ))
+            await auth.signIn(currentCredentials)
+            if let error = auth.lastError {
+                statusIsError = true
+                statusMessage = error
+            }
+            isSubmitting = false
+        }
+    }
+
+    private func testForm() {
+        isTesting = true
+        statusMessage = nil
+        Task {
+            let error = await auth.testConnection(currentCredentials)
+            statusIsError = error != nil
+            statusMessage = error ?? "Connection succeeded."
+            isTesting = false
+        }
+    }
+
+    private func saveForm() {
+        auth.saveAccount(currentCredentials)
+        selectedAccountID = currentCredentials.accountID
+        statusIsError = false
+        statusMessage = "Server saved."
+    }
+
+    private func load(_ account: ServerAccount) {
+        selectedAccountID = account.id
+        serverURL = account.credentials.serverURL
+        username = account.credentials.username
+        password = account.credentials.password
+        statusMessage = nil
+        statusIsError = false
+    }
+
+    private func connectSaved(_ id: ServerAccount.ID) {
+        isSubmitting = true
+        statusMessage = nil
+        Task {
+            await auth.connectSavedAccount(id: id)
+            if let error = auth.lastError {
+                statusIsError = true
+                statusMessage = error
+            }
             isSubmitting = false
         }
     }
@@ -201,6 +262,16 @@ struct LoginView: View {
     }
 
     private var isBusy: Bool {
-        isSubmitting || auth.isRestoringSession
+        isSubmitting || isTesting || auth.isRestoringSession
+    }
+
+    private var canSubmit: Bool {
+        !serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !password.isEmpty
+    }
+
+    private var currentCredentials: ServerCredentials {
+        ServerCredentials(serverURL: serverURL, username: username, password: password)
     }
 }
