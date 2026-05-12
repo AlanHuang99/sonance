@@ -84,6 +84,8 @@ struct Album: Decodable, Identifiable, Hashable {
     let duration: Int?
     let year: Int?
     let starred: String?
+    var genre: String? = nil
+    var playCount: Int? = nil
 }
 
 struct AlbumDetailResponse: Decodable {
@@ -101,6 +103,8 @@ struct AlbumDetail: Decodable, Identifiable, Hashable {
     let year: Int?
     let starred: String?
     let song: [Song]?
+    var genre: String? = nil
+    var playCount: Int? = nil
 }
 
 struct ArtistDetailResponse: Decodable {

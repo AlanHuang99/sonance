@@ -8,6 +8,12 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 ## What works
 
 - Sign-in to a Navidrome / Subsonic-API server (salted-MD5 token auth)
+- Album / song metadata: `Song` now decodes `albumId`, `track`, `discNumber`, `bitRate`,
+  `genre`, and `playCount` from the Subsonic JSON; `Album` and `AlbumDetail` decode `genre`
+  and `playCount`. Track lists show server-reported track numbers when present and fall back
+  to the row index otherwise. Album detail pages group tracks by `discNumber` when an album
+  spans more than one disc, with "Disc N" section headers; the header also reports total
+  album duration ("12 tracks · 47 min").
 - **Albums** — grid view backed by `getAlbumList2`. **Paginated** at 100 per request; an end-of-grid
   sentinel triggers the next page once it scrolls into view, with a small spinner at the bottom
   during load. Sort menu (A–Z / Newest / Recently Played / Most Played / Random) is inline at the
