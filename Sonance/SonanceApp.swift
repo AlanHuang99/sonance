@@ -6,6 +6,7 @@ struct SonanceApp: App {
     @StateObject private var auth = AuthStore()
     @StateObject private var player = Player()
     @StateObject private var favorites = FavoritesStore()
+    @StateObject private var library = LibraryStore()
     @AppStorage("sonance.showMenuBarExtra") private var showMenuBarExtra: Bool = true
 
     var body: some Scene {
@@ -14,6 +15,7 @@ struct SonanceApp: App {
                 .environmentObject(auth)
                 .environmentObject(player)
                 .environmentObject(favorites)
+                .environmentObject(library)
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     appDelegate.attach(auth: auth, player: player, favorites: favorites)

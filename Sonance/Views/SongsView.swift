@@ -3,6 +3,7 @@ import SwiftUI
 struct SongsView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
+    @EnvironmentObject var library: LibraryStore
     @State private var songs: [Song] = []
     @State private var loadError: String?
     @State private var isLoading = false
@@ -13,7 +14,7 @@ struct SongsView: View {
                 Text("Random songs").font(.title2).bold()
                 Spacer()
                 Button {
-                    Task { await load() }
+                    Task { await load(refresh: true) }
                 } label: {
                     Label("Shuffle", systemImage: "shuffle")
                 }
@@ -46,11 +47,16 @@ struct SongsView: View {
     }
 
     private func load() async {
+        await load(refresh: false)
+    }
+
+    private func load(refresh: Bool) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            songs = try await client.randomSongs(size: 100)
+            songs = try await library.randomSongs(size: 100, client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {

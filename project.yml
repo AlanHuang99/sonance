@@ -39,3 +39,15 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Sonance/Sonance.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  SonanceTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: SonanceTests
+    dependencies:
+      - target: Sonance
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alanhuang.SonanceTests
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"

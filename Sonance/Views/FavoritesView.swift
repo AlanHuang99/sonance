@@ -4,6 +4,7 @@ struct FavoritesView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
     @State private var data: Starred2Container?
     @State private var loadError: String?
     @State private var isLoading = false
@@ -24,7 +25,7 @@ struct FavoritesView: View {
                 .frame(maxWidth: 360)
                 Spacer()
                 Button {
-                    Task { await load() }
+                    Task { await load(refresh: true) }
                 } label: { Image(systemName: "arrow.clockwise") }
                 .help("Refresh")
             }
@@ -36,8 +37,8 @@ struct FavoritesView: View {
         .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
         .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
         .task { await load() }
-        .onChange(of: favorites.songIDs) { Task { await load() } }
-        .onChange(of: favorites.albumIDs) { Task { await load() } }
+        .onChange(of: favorites.songIDs) { Task { await load(refresh: true) } }
+        .onChange(of: favorites.albumIDs) { Task { await load(refresh: true) } }
     }
 
     @ViewBuilder
@@ -125,13 +126,18 @@ struct FavoritesView: View {
     }
 
     private func load() async {
+        await load(refresh: false)
+    }
+
+    private func load(refresh: Bool) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            data = try await client.starred()
+            data = try await library.starred(client: client, refresh: refresh)
             // Keep FavoritesStore in sync with the freshly-fetched truth
             favoritesSync(data)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {

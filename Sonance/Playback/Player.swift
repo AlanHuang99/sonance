@@ -36,6 +36,7 @@ final class Player: ObservableObject {
     private var activeClient: SubsonicClient?
     private var hasScrobbledCurrent: Bool = false
     private var lastSavedSecond: Int = -1
+    private var pendingSaveTask: Task<Void, Never>?
     private static let stateKey = "sonance.playerState"
 
     private struct PersistedState: Codable {
@@ -68,13 +69,13 @@ final class Player: ObservableObject {
                    let song = self.currentSong,
                    let client = self.activeClient {
                     self.hasScrobbledCurrent = true
-                    Task.detached { try? await client.scrobble(songID: song.id, submission: true) }
+                    Task.detached { await Self.scrobble(songID: song.id, submission: true, client: client) }
                 }
-                // Persist state every 3 seconds
+                // Persist playhead state every 3 seconds; queue mutations save immediately.
                 let sec = Int(self.currentTime)
                 if sec != self.lastSavedSecond, sec % 3 == 0 {
                     self.lastSavedSecond = sec
-                    self.saveState()
+                    self.scheduleStateSave()
                 }
             }
         }
@@ -100,6 +101,8 @@ final class Player: ObservableObject {
     }
 
     private func saveState() {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = nil
         let state = PersistedState(
             queue: queue,
             queueIndex: queueIndex,
@@ -111,6 +114,15 @@ final class Player: ObservableObject {
         )
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: Self.stateKey)
+        }
+    }
+
+    private func scheduleStateSave() {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.saveState() }
         }
     }
 
@@ -128,10 +140,11 @@ final class Player: ObservableObject {
     func play(_ songs: [Song], startAt index: Int = 0, using client: SubsonicClient) {
         guard !songs.isEmpty else { return }
         activeClient = client
-        queue = songs
-        unshuffledQueue = songs
+        let state = PlaybackQueueLogic.replaceQueue(songs, startAt: index)
+        queue = state.queue
+        unshuffledQueue = state.unshuffled
         isShuffled = false
-        queueIndex = max(0, min(index, songs.count - 1))
+        queueIndex = state.index
         playCurrent()
     }
 
@@ -141,9 +154,7 @@ final class Player: ObservableObject {
             play(songs, startAt: 0, using: client)
             return
         }
-        let insertAt = queueIndex + 1
-        queue.insert(contentsOf: songs, at: insertAt)
-        if !isShuffled { unshuffledQueue = queue }
+        PlaybackQueueLogic.playNext(songs, queue: &queue, queueIndex: queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
         saveState()
     }
 
@@ -153,8 +164,7 @@ final class Player: ObservableObject {
             play(songs, startAt: 0, using: client)
             return
         }
-        queue.append(contentsOf: songs)
-        if !isShuffled { unshuffledQueue = queue }
+        PlaybackQueueLogic.append(songs, queue: &queue, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
         saveState()
     }
 
@@ -166,36 +176,21 @@ final class Player: ObservableObject {
 
     func removeFromQueue(at index: Int) {
         guard index >= 0, index < queue.count else { return }
-        if index == queueIndex {
-            queue.remove(at: index)
-            if !isShuffled, index < unshuffledQueue.count { unshuffledQueue.remove(at: index) }
-            if queue.isEmpty {
-                stop()
-            } else {
-                queueIndex = min(queueIndex, queue.count - 1)
-                playCurrent()
-            }
-        } else {
-            if index < queueIndex { queueIndex -= 1 }
-            queue.remove(at: index)
-            if !isShuffled, index < unshuffledQueue.count { unshuffledQueue.remove(at: index) }
+        let result = PlaybackQueueLogic.remove(at: index, queue: &queue, queueIndex: &queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
+        switch result {
+        case .unchanged:
+            break
+        case .playCurrent:
+            playCurrent()
+        case .stopped:
+            stop()
         }
         saveState()
     }
 
     func moveQueueItem(from source: Int, to destination: Int) {
         guard source >= 0, source < queue.count, destination >= 0, destination <= queue.count, source != destination else { return }
-        let song = queue.remove(at: source)
-        let dest = destination > source ? destination - 1 : destination
-        queue.insert(song, at: dest)
-        if source == queueIndex {
-            queueIndex = dest
-        } else if source < queueIndex && dest >= queueIndex {
-            queueIndex -= 1
-        } else if source > queueIndex && dest <= queueIndex {
-            queueIndex += 1
-        }
-        if !isShuffled { unshuffledQueue = queue }
+        PlaybackQueueLogic.move(from: source, to: destination, queue: &queue, queueIndex: &queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
         saveState()
     }
 
@@ -262,31 +257,7 @@ final class Player: ObservableObject {
     }
 
     func toggleShuffle() {
-        if isShuffled {
-            // Restore original order; keep current song as queueIndex
-            let current = currentSong
-            queue = unshuffledQueue
-            if let current, let i = queue.firstIndex(of: current) {
-                queueIndex = i
-            }
-            isShuffled = false
-        } else {
-            unshuffledQueue = queue
-            let current = currentSong
-            var rest = queue
-            if let current, let i = rest.firstIndex(of: current) {
-                rest.remove(at: i)
-            }
-            rest.shuffle()
-            if let current {
-                queue = [current] + rest
-                queueIndex = 0
-            } else {
-                queue = rest
-                queueIndex = 0
-            }
-            isShuffled = true
-        }
+        PlaybackQueueLogic.toggleShuffle(queue: &queue, queueIndex: &queueIndex, isShuffled: &isShuffled, unshuffledQueue: &unshuffledQueue, currentSong: currentSong)
         saveState()
     }
 
@@ -327,7 +298,7 @@ final class Player: ObservableObject {
         saveState()
 
         // "Now playing" scrobble
-        Task.detached { try? await client.scrobble(songID: song.id, submission: false) }
+        Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
     }
 
     private func handleTrackEnd() {
@@ -350,14 +321,21 @@ final class Player: ObservableObject {
     }
 
     private func advanceOrStop() {
-        if queueIndex + 1 < queue.count {
-            queueIndex += 1
-            playCurrent()
-        } else if repeatMode == .all && !queue.isEmpty {
-            queueIndex = 0
+        if let next = PlaybackQueueLogic.nextIndex(queue: queue, queueIndex: queueIndex, repeatMode: repeatMode) {
+            queueIndex = next
             playCurrent()
         } else {
             stop()
+        }
+    }
+
+    private nonisolated static func scrobble(songID: String, submission: Bool, client: SubsonicClient) async {
+        do {
+            try await client.scrobble(songID: songID, submission: submission)
+        } catch {
+            #if DEBUG
+            NSLog("Sonance scrobble failed: %@", (error as? SubsonicError)?.message ?? error.localizedDescription)
+            #endif
         }
     }
 }

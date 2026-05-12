@@ -19,7 +19,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
         case .playlists: return "music.note.list"
         case .favorites: return "heart.fill"
         case .search: return "magnifyingglass"
-        case .accounts: return "person.crop.circle.badge.gearshape"
+        case .accounts: return "person.crop.circle"
         }
     }
 }
@@ -28,6 +28,7 @@ struct LibraryView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
     @State private var selection: LibrarySection? = .albums
 
     var body: some View {
@@ -101,6 +102,7 @@ struct LibraryView: View {
     private func switchToAccount(_ id: ServerAccount.ID) {
         player.clearQueue()
         favorites.clear()
+        library.clear()
         auth.switchToAccount(id: id)
     }
 }
@@ -110,6 +112,7 @@ struct ServerFooter: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
 
     var body: some View {
         Menu {
@@ -181,12 +184,14 @@ struct ServerFooter: View {
     private func switchToAccount(_ id: ServerAccount.ID) {
         player.clearQueue()
         favorites.clear()
+        library.clear()
         auth.switchToAccount(id: id)
     }
 
     private func disconnect(forgetCurrentAccount: Bool = false) {
         player.clearQueue()
         favorites.clear()
+        library.clear()
         auth.signOut(forgetCurrentAccount: forgetCurrentAccount)
     }
 }

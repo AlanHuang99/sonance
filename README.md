@@ -20,6 +20,11 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
   Heart buttons across the app toggle star/unstar via the Subsonic API; state stays in sync via
   a global `FavoritesStore`.
 - **Search** — debounced search3 across artists, albums, and songs
+- Shared in-memory library cache avoids re-fetching album lists, artists, details, playlists,
+  favorites, random songs, and repeated search results during normal navigation. Refresh controls
+  bypass cache intentionally.
+- Cover art uses stable cache keys and an `NSCache` of decoded `NSImage` values, so rotating
+  Subsonic auth tokens do not defeat image reuse.
 
 ### Playback
 
@@ -54,7 +59,7 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
   any prior UserDefaults entry). Debug builds use `UserDefaults` instead and include a local
   test-server preset so iterative rebuilds do not repeatedly prompt for Keychain access.
 - The current queue + queue index + current time + shuffle/repeat state + volume are saved to
-  `UserDefaults` every 3 seconds and on every queue mutation. On launch, the mini-player shows
+  `UserDefaults` on queue mutations and via a throttled playhead save. On launch, the mini-player shows
   the last track in a **paused** state at the correct scrubber position; press Play (or Space)
   to load the AVPlayerItem, seek to the saved time, and resume.
 
@@ -99,7 +104,7 @@ the pattern in apps like Linear / Notion / Slack.
 | Multiple servers | ✅ | ✅ (saved accounts + switcher) |
 | Keychain credential storage | ✅ | ✅ |
 | Persistent queue across launches | ❌ | ✅ |
-| Refresh Library command | ✅ | partial (per-view reload) |
+| Refresh Library command | ✅ | ✅ (per-view refresh controls) |
 
 ## What doesn't work yet
 
@@ -138,6 +143,9 @@ For an easy local workflow:
 ```sh
 ./bin/dev.sh
 ```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for exact CI-style build/test commands, a Navidrome smoke-test
+checklist, request-count diagnostics, and current limitations.
 
 ## Installable releases
 
@@ -187,10 +195,11 @@ Local DMG packaging from that build:
 
 ```
 Sonance/
-  SonanceApp.swift          # @main, hosts Auth + Player as @StateObject
+  SonanceApp.swift          # @main, hosts Auth + Player + LibraryStore as @StateObject
   ContentView.swift         # routes login vs library, places MiniPlayerBar via safeAreaInset
   Auth/                     # ServerCredentials, AuthStore (login state + persistence)
   Networking/               # SubsonicClient (URL building, auth tokens), SubsonicError
+  Library/                  # LibraryStore shared cache + request de-duplication
   Models/                   # Decodable Subsonic response types
   Playback/Player.swift     # AVPlayer wrapper, queue, time/end observers
   Views/

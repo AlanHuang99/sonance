@@ -16,6 +16,7 @@ enum AlbumSort: String, CaseIterable, Identifiable {
 
 struct AlbumsView: View {
     @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var library: LibraryStore
     @State private var albums: [Album] = []
     @State private var loadError: String?
     @State private var isLoading = false
@@ -40,6 +41,14 @@ struct AlbumsView: View {
         }
         .navigationTitle("Albums")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(refresh: true) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
             ToolbarItem(placement: .secondaryAction) {
                 Picker("Sort", selection: $sort) {
                     ForEach(AlbumSort.allCases) { Text($0.label).tag($0) }
@@ -54,12 +63,13 @@ struct AlbumsView: View {
         .task { await load() }
     }
 
-    private func load() async {
+    private func load(refresh: Bool = false) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            albums = try await client.albumList(type: sort.rawValue, size: 200)
+            albums = try await library.albumList(sort: sort, size: 200, client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {
@@ -74,6 +84,8 @@ struct AlbumGridItem: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
+    @State private var actionError: String?
 
     var body: some View {
         NavigationLink(value: album) {
@@ -91,24 +103,46 @@ struct AlbumGridItem: View {
                 }
             }
         }
+        .alert("Album Action Failed", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
     }
 
     private func fetchAndPlay() async {
         guard let client = auth.client else { return }
-        if let songs = try? await client.album(id: album.id).song, !songs.isEmpty {
+        do {
+            let songs = try await library.albumDetail(id: album.id, client: client).song ?? []
+            guard !songs.isEmpty else { return }
             await MainActor.run { player.play(songs, startAt: 0, using: client) }
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
     }
+
     private func fetchAndPlayNext() async {
         guard let client = auth.client else { return }
-        if let songs = try? await client.album(id: album.id).song, !songs.isEmpty {
+        do {
+            let songs = try await library.albumDetail(id: album.id, client: client).song ?? []
+            guard !songs.isEmpty else { return }
             await MainActor.run { player.playNext(songs, using: client) }
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
     }
+
     private func fetchAndAppend() async {
         guard let client = auth.client else { return }
-        if let songs = try? await client.album(id: album.id).song, !songs.isEmpty {
+        do {
+            let songs = try await library.albumDetail(id: album.id, client: client).song ?? []
+            guard !songs.isEmpty else { return }
             await MainActor.run { player.appendToQueue(songs, using: client) }
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
     }
 }

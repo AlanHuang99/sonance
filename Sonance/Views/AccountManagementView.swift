@@ -4,6 +4,7 @@ struct AccountManagementView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
 
     @State private var selectedAccountID: ServerAccount.ID?
     @State private var serverURL = ""
@@ -245,8 +246,11 @@ struct AccountManagementView: View {
     }
 
     private func saveCurrentForm() {
-        auth.saveAccount(currentCredentials)
-        selectedAccountID = currentCredentials.accountID
+        let prepared = currentCredentials.preparedForConnection
+        auth.saveAccount(prepared)
+        serverURL = prepared.serverURL
+        username = prepared.username
+        selectedAccountID = prepared.accountID
         statusIsError = false
         statusMessage = "Account saved."
     }
@@ -288,6 +292,7 @@ struct AccountManagementView: View {
     private func clearPlaybackState() {
         player.clearQueue()
         favorites.clear()
+        library.clear()
     }
 
     private var currentCredentials: ServerCredentials {

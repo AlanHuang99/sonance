@@ -217,8 +217,11 @@ struct LoginView: View {
     }
 
     private func saveForm() {
-        auth.saveAccount(currentCredentials)
-        selectedAccountID = currentCredentials.accountID
+        let prepared = currentCredentials.preparedForConnection
+        auth.saveAccount(prepared)
+        serverURL = prepared.serverURL
+        username = prepared.username
+        selectedAccountID = prepared.accountID
         statusIsError = false
         statusMessage = "Server saved."
     }

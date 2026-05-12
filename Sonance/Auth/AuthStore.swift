@@ -43,6 +43,7 @@ final class AuthStore: ObservableObject {
     }
 
     func signIn(_ creds: ServerCredentials) async {
+        let creds = creds.preparedForConnection
         let candidate = SubsonicClient(credentials: creds)
         do {
             try await candidate.ping()
@@ -59,6 +60,7 @@ final class AuthStore: ObservableObject {
     }
 
     func testConnection(_ creds: ServerCredentials) async -> String? {
+        let creds = creds.preparedForConnection
         let candidate = SubsonicClient(credentials: creds)
         do {
             try await candidate.ping()
@@ -71,7 +73,7 @@ final class AuthStore: ObservableObject {
     }
 
     func saveAccount(_ creds: ServerCredentials) {
-        upsertAccount(creds)
+        upsertAccount(creds.preparedForConnection)
         lastError = nil
     }
 

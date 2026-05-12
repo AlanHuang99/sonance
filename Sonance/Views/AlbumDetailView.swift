@@ -4,6 +4,7 @@ struct AlbumDetailView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
     let album: Album
     @State private var detail: AlbumDetail?
     @State private var loadError: String?
@@ -17,6 +18,16 @@ struct AlbumDetailView: View {
         }
         .navigationTitle(album.name)
         .task { await load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(refresh: true) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
+        }
     }
 
     private var header: some View {
@@ -81,12 +92,13 @@ struct AlbumDetailView: View {
         }
     }
 
-    private func load() async {
+    private func load(refresh: Bool = false) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            detail = try await client.album(id: album.id)
+            detail = try await library.albumDetail(id: album.id, client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {

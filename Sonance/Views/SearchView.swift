@@ -3,11 +3,13 @@ import SwiftUI
 struct SearchView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
+    @EnvironmentObject var library: LibraryStore
     @State private var query = ""
     @State private var result: SearchResult?
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var debounceTask: Task<Void, Never>?
+    @State private var searchGeneration = UUID()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,7 +91,11 @@ struct SearchView: View {
     private func scheduleSearch(_ q: String) {
         debounceTask?.cancel()
         debounceTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 300_000_000)
+            } catch {
+                return
+            }
             if Task.isCancelled { return }
             await runSearch(q)
         }
@@ -100,17 +106,29 @@ struct SearchView: View {
         let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             result = nil
+            loadError = nil
+            isLoading = false
             return
         }
+        let normalized = library.normalizeSearch(trimmed)
+        let generation = UUID()
+        searchGeneration = generation
         isLoading = true
-        defer { isLoading = false }
         do {
-            result = try await client.search(trimmed)
+            let next = try await library.search(query: trimmed, client: client)
+            guard searchGeneration == generation,
+                  library.normalizeSearch(query) == normalized else { return }
+            result = next
             loadError = nil
         } catch let error as SubsonicError {
+            guard searchGeneration == generation else { return }
             loadError = error.message
         } catch {
+            guard searchGeneration == generation else { return }
             loadError = error.localizedDescription
+        }
+        if searchGeneration == generation {
+            isLoading = false
         }
     }
 }

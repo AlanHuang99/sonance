@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ArtistsView: View {
     @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var library: LibraryStore
     @State private var artists: [Artist] = []
     @State private var loadError: String?
     @State private var isLoading = false
@@ -23,14 +24,25 @@ struct ArtistsView: View {
         .navigationTitle("Artists")
         .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
         .task { await load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(refresh: true) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
+        }
     }
 
-    private func load() async {
+    private func load(refresh: Bool = false) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            artists = try await client.artists().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            artists = try await library.artists(client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {
@@ -61,6 +73,7 @@ struct ArtistRow: View {
 
 struct ArtistDetailView: View {
     @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var library: LibraryStore
     let artist: Artist
     @State private var detail: ArtistDetail?
     @State private var loadError: String?
@@ -91,14 +104,25 @@ struct ArtistDetailView: View {
         .navigationTitle(artist.name)
         .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
         .task { await load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(refresh: true) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
+        }
     }
 
-    private func load() async {
+    private func load(refresh: Bool = false) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            detail = try await client.artist(id: artist.id)
+            detail = try await library.artistDetail(id: artist.id, client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {

@@ -106,11 +106,22 @@ final class SubsonicClient: @unchecked Sendable {
         try? buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
     }
 
+    func coverArtData(id: String, size: Int = 300) async throws -> Data {
+        NetworkDiagnostics.record("getCoverArt:\(size)")
+        let url = try buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
+        let (data, response) = try await urlSession.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw SubsonicError(code: http.statusCode, message: "Cover art request failed with HTTP \(http.statusCode)")
+        }
+        return data
+    }
+
     func coverArtCacheKey(id: String, size: Int = 300) -> String {
         "\(credentials.accountID)|cover|\(id)|\(size)"
     }
 
     private func get<T: Decodable>(_ endpoint: String, params: [String: String]) async throws -> T {
+        NetworkDiagnostics.record(endpoint)
         let url = try buildURL(endpoint: endpoint, params: params)
         let (data, _) = try await urlSession.data(from: url)
         let envelope = try JSONDecoder().decode(SubsonicEnvelope<T>.self, from: data)

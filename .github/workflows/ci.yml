@@ -34,6 +34,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Run Tests
+        run: |
+          xcodebuild test \
+            -project Sonance.xcodeproj \
+            -scheme Sonance \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Build Release app
         run: ./scripts/build-release-app.sh 0.1.0-ci "$GITHUB_RUN_NUMBER"
 

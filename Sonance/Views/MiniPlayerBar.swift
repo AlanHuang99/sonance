@@ -25,7 +25,8 @@ struct MiniPlayerBar: View {
                         Text(song.title).font(.callout).lineLimit(1)
                         Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .frame(maxWidth: 200, alignment: .leading)
+                    .frame(minWidth: 120, maxWidth: 220, alignment: .leading)
+                    .layoutPriority(2)
 
                     Button {
                         if let c = auth.client {
@@ -37,8 +38,6 @@ struct MiniPlayerBar: View {
                     }
                     .buttonStyle(.borderless)
                     .help(favorites.isSongFavorite(song.id) ? "Remove favorite" : "Add favorite")
-
-                    Spacer(minLength: 8)
 
                     HStack(spacing: 8) {
                         Button { player.toggleShuffle() } label: {
@@ -64,37 +63,52 @@ struct MiniPlayerBar: View {
                         .buttonStyle(.borderless)
                         .help("Repeat: \(player.repeatMode.rawValue)")
                     }
+                    .layoutPriority(3)
 
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 6)
 
-                    HStack(spacing: 6) {
-                        Text(formatTime(player.currentTime))
-                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                            .frame(width: 36, alignment: .trailing)
-                        Slider(
-                            value: Binding(
-                                get: { player.currentTime },
-                                set: { player.seek(to: $0) }
-                            ),
-                            in: 0...max(player.duration, 0.1)
-                        )
-                        .frame(maxWidth: 240)
-                        Text(formatTime(player.duration))
-                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                            .frame(width: 36, alignment: .leading)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) {
+                            scrubber
+                            volume
+                        }
+                        scrubber
                     }
-
-                    HStack(spacing: 4) {
-                        Image(systemName: player.volume == 0 ? "speaker.slash" : "speaker.wave.2")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                        Slider(value: $player.volume, in: 0...1).frame(width: 70)
-                    }
+                    .layoutPriority(1)
+                    .frame(maxWidth: 360)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(.bar)
             }
+        }
+    }
+
+    private var scrubber: some View {
+        HStack(spacing: 6) {
+            Text(formatTime(player.currentTime))
+                .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                .frame(width: 36, alignment: .trailing)
+            Slider(
+                value: Binding(
+                    get: { player.currentTime },
+                    set: { player.seek(to: $0) }
+                ),
+                in: 0...max(player.duration, 0.1)
+            )
+            .frame(minWidth: 120, idealWidth: 180, maxWidth: 240)
+            Text(formatTime(player.duration))
+                .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                .frame(width: 36, alignment: .leading)
+        }
+    }
+
+    private var volume: some View {
+        HStack(spacing: 4) {
+            Image(systemName: player.volume == 0 ? "speaker.slash" : "speaker.wave.2")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+            Slider(value: $player.volume, in: 0...1).frame(width: 70)
         }
     }
 

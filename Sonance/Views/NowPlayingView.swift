@@ -38,10 +38,20 @@ struct NowPlayingView: View {
             .padding(.top, 10)
             .padding(.bottom, 6)
 
-            HStack(spacing: 0) {
-                leftPane.frame(width: 380)
-                Divider()
-                rightPane.frame(maxWidth: .infinity)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    leftPane.frame(width: 380)
+                    Divider()
+                    rightPane.frame(maxWidth: .infinity)
+                }
+
+                VStack(spacing: 0) {
+                    leftPane
+                        .frame(maxWidth: .infinity)
+                    Divider()
+                    rightPane
+                        .frame(minHeight: 260)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -51,9 +61,15 @@ struct NowPlayingView: View {
     private var leftPane: some View {
         VStack(spacing: 16) {
             if let song = player.currentSong {
-                cover(for: song)
-                    .frame(width: 280, height: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                ViewThatFits {
+                    cover(for: song)
+                        .frame(width: 280, height: 280)
+                    cover(for: song)
+                        .frame(width: 220, height: 220)
+                    cover(for: song)
+                        .frame(width: 160, height: 160)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(spacing: 4) {
                     Text(song.title).font(.title2).bold().multilineTextAlignment(.center).lineLimit(2)
@@ -242,6 +258,7 @@ struct LyricsPaneView: View {
     @State private var lines: [LyricLine] = []
     @State private var loadError: String?
     @State private var loading = false
+    @State private var followCurrentLine = true
 
     private var currentLineIndex: Int? {
         let nowMs = Int(player.currentTime * 1000)
@@ -273,31 +290,44 @@ struct LyricsPaneView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .center, spacing: 10) {
-                            ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
-                                Text(line.value.isEmpty ? " " : line.value)
-                                    .font(currentLineIndex == idx ? .title3 : .body)
-                                    .fontWeight(currentLineIndex == idx ? .semibold : .regular)
-                                    .foregroundStyle(currentLineIndex == idx ? Color.primary : .secondary)
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 4)
-                                    .id(idx)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        if hasTimings, let s = line.start {
-                                            player.seek(to: TimeInterval(s) / 1000)
-                                        }
-                                    }
-                            }
+                VStack(spacing: 0) {
+                    if hasTimings {
+                        HStack {
+                            Spacer()
+                            Toggle("Follow", isOn: $followCurrentLine)
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
                         }
-                        .padding(.vertical, 60)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        Divider()
                     }
-                    .onChange(of: currentLineIndex) { _, newIdx in
-                        if let idx = newIdx {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .center, spacing: 10) {
+                                ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
+                                    Text(line.value.isEmpty ? " " : line.value)
+                                        .font(currentLineIndex == idx ? .title3 : .body)
+                                        .fontWeight(currentLineIndex == idx ? .semibold : .regular)
+                                        .foregroundStyle(currentLineIndex == idx ? Color.primary : .secondary)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 4)
+                                        .id(idx)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            if hasTimings, let s = line.start {
+                                                player.seek(to: TimeInterval(s) / 1000)
+                                                followCurrentLine = true
+                                            }
+                                        }
+                                }
+                            }
+                            .padding(.vertical, 60)
+                        }
+                        .onChange(of: currentLineIndex) { _, newIdx in
+                            guard followCurrentLine, let idx = newIdx else { return }
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 proxy.scrollTo(idx, anchor: .center)
                             }

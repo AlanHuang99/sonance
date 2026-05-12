@@ -18,8 +18,16 @@ struct ServerCredentials: Codable, Equatable {
         return raw
     }
 
+    var preparedForConnection: ServerCredentials {
+        ServerCredentials(
+            serverURL: Self.normalizedServerInput(serverURL),
+            username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password
+        )
+    }
+
     private var normalizedServerURL: String {
-        let raw = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = Self.normalizedServerInput(serverURL)
         guard var components = URLComponents(string: raw) else {
             return raw.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
         }
@@ -30,6 +38,21 @@ struct ServerCredentials: Codable, Equatable {
         components.query = nil
         components.fragment = nil
         return (components.string ?? raw).lowercased()
+    }
+
+    private static func normalizedServerInput(_ value: String) -> String {
+        var raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return raw }
+        if !raw.localizedCaseInsensitiveContains("://") {
+            raw = "http://" + raw
+        }
+        while raw.hasSuffix("/") {
+            raw.removeLast()
+        }
+        if raw.lowercased().hasSuffix("/rest") {
+            raw.removeLast(5)
+        }
+        return raw
     }
 }
 

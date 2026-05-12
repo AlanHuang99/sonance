@@ -18,11 +18,15 @@ struct CoverArtImage: View {
     var body: some View {
         ZStack {
             placeholder
-            if let image = loader.image {
+            if case .success(let image) = loader.state {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
                     .transition(.opacity)
+            } else if case .failure = loader.state {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title3)
+                    .foregroundStyle(.tertiary)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: corner))
@@ -31,11 +35,9 @@ struct CoverArtImage: View {
                 loader.clear()
                 return
             }
-            await loader.load(cacheKey: cacheKey) {
-                client.coverArtURL(id: coverArtID, size: size)
-            }
+            await loader.load(cacheKey: cacheKey, coverArtID: coverArtID, size: size, client: client)
         }
-        .animation(.easeInOut(duration: 0.18), value: loader.image != nil)
+        .animation(.easeInOut(duration: 0.18), value: loader.hasImage)
     }
 
     private var placeholder: some View {
@@ -51,39 +53,70 @@ struct CoverArtImage: View {
 
 @MainActor
 private final class CoverArtImageLoader: ObservableObject {
-    @Published private(set) var image: NSImage?
+    @Published private(set) var state: CoverArtLoadState = .idle
     private static let cache = NSCache<NSString, NSImage>()
+    private static var inFlight: [String: Task<NSImage, Error>] = [:]
     private var loadingKey: String?
 
+    var hasImage: Bool {
+        if case .success = state { return true }
+        return false
+    }
+
     func clear() {
-        image = nil
+        state = .idle
         loadingKey = nil
     }
 
-    func load(cacheKey: String, url: @escaping () -> URL?) async {
+    func load(cacheKey: String, coverArtID: String, size: Int, client: SubsonicClient) async {
         if let cached = Self.cache.object(forKey: cacheKey as NSString) {
-            image = cached
+            state = .success(cached)
             loadingKey = nil
             return
         }
 
         loadingKey = cacheKey
-        guard let requestURL = url() else {
-            if loadingKey == cacheKey { image = nil }
-            return
-        }
+        state = .loading
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: requestURL)
-            guard !Task.isCancelled,
-                  loadingKey == cacheKey,
-                  let loaded = NSImage(data: data) else { return }
+            let loaded = try await Self.image(cacheKey: cacheKey, coverArtID: coverArtID, size: size, client: client)
+            guard !Task.isCancelled, loadingKey == cacheKey else { return }
             Self.cache.setObject(loaded, forKey: cacheKey as NSString)
-            image = loaded
+            state = .success(loaded)
         } catch {
             if loadingKey == cacheKey {
-                image = nil
+                state = .failure(error.localizedDescription)
             }
         }
     }
+
+    private static func image(cacheKey: String, coverArtID: String, size: Int, client: SubsonicClient) async throws -> NSImage {
+        if let cached = cache.object(forKey: cacheKey as NSString) {
+            return cached
+        }
+        if let task = inFlight[cacheKey] {
+            return try await task.value
+        }
+
+        let task = Task<NSImage, Error> {
+            let data = try await client.coverArtData(id: coverArtID, size: size)
+            guard let image = NSImage(data: data) else {
+                throw SubsonicError(code: -1, message: "Could not decode cover art")
+            }
+            return image
+        }
+        inFlight[cacheKey] = task
+        defer { inFlight[cacheKey] = nil }
+
+        let image = try await task.value
+        cache.setObject(image, forKey: cacheKey as NSString)
+        return image
+    }
+}
+
+private enum CoverArtLoadState {
+    case idle
+    case loading
+    case success(NSImage)
+    case failure(String)
 }

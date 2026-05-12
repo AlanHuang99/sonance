@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlaylistsView: View {
     @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var library: LibraryStore
     @State private var playlists: [Playlist] = []
     @State private var selectedID: Playlist.ID?
     @State private var loadError: String?
@@ -16,6 +17,16 @@ struct PlaylistsView: View {
         }
         .navigationTitle("Playlists")
         .task { await load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(refresh: true) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
+        }
     }
 
     private var playlistList: some View {
@@ -50,11 +61,16 @@ struct PlaylistsView: View {
     }
 
     private func load() async {
+        await load(refresh: false)
+    }
+
+    private func load(refresh: Bool) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            playlists = try await client.playlists().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            playlists = try await library.playlists(client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {
@@ -92,6 +108,7 @@ struct PlaylistRow: View {
 struct PlaylistDetailView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
+    @EnvironmentObject var library: LibraryStore
     let summary: Playlist
     @State private var detail: PlaylistDetail?
     @State private var loadError: String?
@@ -104,6 +121,16 @@ struct PlaylistDetailView: View {
             tracks
         }
         .task { await load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(refresh: true) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
+        }
     }
 
     private var header: some View {
@@ -154,11 +181,16 @@ struct PlaylistDetailView: View {
     }
 
     private func load() async {
+        await load(refresh: false)
+    }
+
+    private func load(refresh: Bool) async {
         guard let client = auth.client else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            detail = try await client.playlist(id: summary.id)
+            detail = try await library.playlistDetail(id: summary.id, client: client, refresh: refresh)
+            loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {
