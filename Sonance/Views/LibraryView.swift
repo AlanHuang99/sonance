@@ -112,8 +112,15 @@ struct LibraryView: View {
         }
         .onChange(of: navigation.selectedSection) { _, _ in
             // A section switch resets the detail stack so ⌘1..⌘5 always lands on the section's
-            // root view instead of a stale leaf from the prior section's stack.
-            detailPath = NavigationPath()
+            // root view instead of a stale leaf from the prior section's stack. Skip the reset
+            // if a pending Album / Artist navigation is in flight — `requestAlbumNavigation`
+            // can switch the section AND set the pending album in the same gesture, and
+            // SwiftUI fires the two `onChange` handlers in an unspecified order. Letting the
+            // pending-nav handler take over avoids racing the path back to empty after the
+            // album is appended.
+            if navigation.pendingAlbumNavigation == nil && navigation.pendingArtistNavigation == nil {
+                detailPath = NavigationPath()
+            }
         }
         .onChange(of: navigation.pendingAlbumNavigation) { _, album in
             guard let album else { return }

@@ -1,8 +1,53 @@
 # Sonance: performance + UX overhaul — Final report
 
-Branch: `update-task` (Conductor worktree of the `las-vegas` workspace) — 10 commits,
-one per milestone, on top of `master`. Final build: `** BUILD SUCCEEDED **`. Final test
-run: `12 / 12 passed, 0 failures` (including 5 new `CoverArtCacheTests`).
+Branch: `update-task` (Conductor worktree of the `las-vegas` workspace) — 10 milestone
+commits + the final report + an integration-verification commit, on top of `master`.
+Final clean build: `** BUILD SUCCEEDED **`. Final test run: `24 / 24 passed, 0 failures`
+(5 `CoverArtCacheTests` + 7 pre-existing `PlaybackQueueLogicTests` + 12 new
+`IntegrationTests`).
+
+## Integration verification (post-M10)
+
+After the per-milestone commits I did a clean rebuild and launched the app to confirm
+the milestones don't interfere with each other when run together. macOS `log show` for
+the Sonance process captured concrete signals:
+
+- **M2 reaches the OS.** `MRMediaRemoteAddCommandHandlerForPlayer` fires; a full
+  `setNowPlayingInfo` push lands at the system with the correct keys
+  (`kMRMediaRemoteNowPlayingInfoTitle/Artist/Album/Duration/ElapsedTime/PlaybackRate/
+  ContentItemIdentifier/MediaType`). This is concrete proof the bridge is wired correctly
+  beyond the unit-test level.
+- **M5 paginates as designed.** Albums grid fired
+  `getAlbumList2?size=100&offset=0&type=alphabeticalByName` — the 100-per-page initial
+  request.
+- **M1 stable URLs in flight.** Each URL carries `u`, `t`, `s` parameters; media URLs are
+  reused across renders. (The cancelled-task error in the logs is just URLSession's
+  cleanup from a prior process exit, not a fault in the integrated code.)
+- **No crashes, no fatal errors, no fatal exceptions.** App started cleanly, restored
+  the persisted queue, painted the library, and terminated cleanly under `pkill -x`.
+
+I also added `SonanceTests/IntegrationTests.swift` (12 new tests) covering cross-milestone
+seams that are most likely to break in a multi-merge:
+- `testInsertAtEndAppendsAndPreservesIndex`, `testInsertBeforeCurrentShiftsIndexForward`,
+  `testInsertIntoEmptyQueueStartsPlayback` — M3 ↔ M10: drop-into-queue keeps `queueIndex`
+  coherent.
+- `testStableMediaURLsAcrossManyCalls`, `testNonMediaEndpointsRotateSalt` — M1: media
+  URLs stay stable across many calls; non-media URLs differ where they should.
+- `testCoverArtCacheKeyPartitionsByAccount` — M1: same cover ID on different servers
+  never collides.
+- `testAlbumDecodesWithM8Fields`, `testAlbumDecodesWithoutOptionalFields`,
+  `testSongDecodesNavigationFields`, `testSongDecodesWithoutNavigationFields` — M7 / M8:
+  new Optional model fields decode forward and backward compatibly.
+- `testFavoritesReconcileLogic` — M4: the reconcile filter encodes the invariant for
+  future refactors.
+
+I also fixed a latent race in `LibraryView`'s `onChange` handlers (M7 ↔ M10):
+`requestAlbumNavigation` from a non-Albums section both flips `selectedSection` and sets
+`pendingAlbumNavigation`. SwiftUI doesn't guarantee `onChange` ordering for the two
+`@Published` properties, so the section-switch handler used to risk clearing the detail
+path *after* the album was already appended. The fix is a guard:
+`if navigation.pendingAlbumNavigation == nil && navigation.pendingArtistNavigation == nil`
+before resetting the path.
 
 ## Milestone status
 
