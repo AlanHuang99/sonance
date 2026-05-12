@@ -137,9 +137,16 @@ struct PlaylistsView: View {
     private func createPlaylist(name: String) async {
         guard let client = auth.client else { return }
         do {
-            _ = try await client.createPlaylist(name: name)
+            let created = try await client.createPlaylist(name: name)
             await load(refresh: true)
-            if let newest = playlists.first(where: { $0.name == name }) {
+            if let createdID = created?.id, playlists.contains(where: { $0.id == createdID }) {
+                // Prefer the server-returned ID: selecting by name is wrong if another
+                // playlist with the same name already exists.
+                selectedID = createdID
+            } else if let newest = playlists.first(where: { $0.name == name }) {
+                // Some servers reply to createPlaylist with just status=ok and no body. Fall
+                // back to the name match — best-effort, and only meaningful if names are
+                // unique.
                 selectedID = newest.id
             }
         } catch {
@@ -210,6 +217,14 @@ struct PlaylistDetailView: View {
     @State private var isLoading = false
     @State private var actionError: String?
     @State private var showingAddTracks = false
+    /// Serialises drag-reorder requests so two quick successive drags don't have their
+    /// `playlistReplaceContents` calls race — without this, the older request can finish
+    /// last and overwrite the newer order on the server.
+    @State private var reorderTask: Task<Void, Never>?
+    /// Serialises track removals so multi-row deletes hit the server one index at a time,
+    /// not concurrently (the index of the second target depends on whether the first removal
+    /// has landed yet).
+    @State private var removalTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -304,12 +319,8 @@ struct PlaylistDetailView: View {
                     playlistID: summary.id,
                     songs: songs,
                     onPlay: { idx in playSong(at: idx) },
-                    onMoved: { newOrder in
-                        Task { await reorder(to: newOrder) }
-                    },
-                    onRemove: { index in
-                        Task { await removeTrack(at: index) }
-                    }
+                    onMoved: { newOrder in scheduleReorder(to: newOrder) },
+                    onRemoveBatch: { indices in scheduleRemoval(indices: indices) }
                 )
             }
         } else {
@@ -352,6 +363,26 @@ struct PlaylistDetailView: View {
         player.play(songs, startAt: index, using: client)
     }
 
+    private func scheduleReorder(to newSongs: [Song]) {
+        let prior = reorderTask
+        reorderTask = Task { [newSongs] in
+            // Wait for any in-flight reorder to finish before starting the next, so the
+            // server ends up reflecting the latest drop. Cancellation would also work, but
+            // the chunked replace is many calls and partial completion is harder to reason
+            // about than a few extra round trips.
+            _ = await prior?.value
+            await reorder(to: newSongs)
+        }
+    }
+
+    private func scheduleRemoval(indices: [Int]) {
+        let prior = removalTask
+        removalTask = Task { [indices] in
+            _ = await prior?.value
+            await removeTracks(at: indices)
+        }
+    }
+
     private func reorder(to newSongs: [Song]) async {
         guard let client = auth.client else { return }
         let originalSongs = detail?.entry ?? []
@@ -378,13 +409,20 @@ struct PlaylistDetailView: View {
         }
     }
 
-    private func removeTrack(at index: Int) async {
+    private func removeTracks(at indices: [Int]) async {
         guard let client = auth.client else { return }
+        // Removal is positional; processing in descending order keeps each remaining index
+        // valid against the live server state.
+        let descending = indices.sorted(by: >)
         do {
-            try await client.playlistRemoveSong(playlistID: summary.id, index: index)
+            for i in descending {
+                try await client.playlistRemoveSong(playlistID: summary.id, index: i)
+            }
             await load(refresh: true)
         } catch {
             actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
+            // The playlist may be in a partial state — fetch authoritative truth.
+            await load(refresh: true)
         }
     }
 }
@@ -395,7 +433,10 @@ struct EditablePlaylistTrackList: View {
     let songs: [Song]
     let onPlay: (Int) -> Void
     let onMoved: ([Song]) -> Void
-    let onRemove: (Int) -> Void
+    /// Always called with the indices to remove, in any order. The caller is responsible for
+    /// serialising the network calls and sorting indices to keep them valid against the live
+    /// server state.
+    let onRemoveBatch: ([Int]) -> Void
 
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
@@ -420,7 +461,7 @@ struct EditablePlaylistTrackList: View {
                 .draggable(song)
                 .contextMenu {
                     Button("Play") { onPlay(idx) }
-                    Button("Remove from Playlist", role: .destructive) { onRemove(idx) }
+                    Button("Remove from Playlist", role: .destructive) { onRemoveBatch([idx]) }
                     Divider()
                     Button(favorites.isSongFavorite(song.id) ? "Remove Favorite" : "Add Favorite") {
                         toggleFavorite(song)
@@ -433,12 +474,10 @@ struct EditablePlaylistTrackList: View {
                 onMoved(newOrder)
             }
             .onDelete { indexSet in
-                // `onDelete` passes every selected offset. Remove in descending order so each
-                // `onRemove` call sees a still-valid index — removing a low index first would
-                // shift the remaining indices and target the wrong rows.
-                for i in indexSet.sorted(by: >) {
-                    onRemove(i)
-                }
+                // Hand the whole IndexSet down. The parent serialises and sorts before
+                // hitting the network so concurrent removals can't race against each other's
+                // index shifts.
+                onRemoveBatch(Array(indexSet))
             }
         }
         .listStyle(.inset)
@@ -550,11 +589,21 @@ struct AddTracksToPlaylistSheet: View {
         let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             results = []
+            error = nil
             return
         }
         do {
             let r = try await library.search(query: trimmed, client: client)
             results = r.song ?? []
+            // A fresh successful result invalidates any stale error message — the user
+            // should not see a red "previous query failed" line under live results.
+            error = nil
+        } catch is CancellationError {
+            // Superseded by a newer search. The replacement run will refresh state; don't
+            // surface cancellation as a user-visible failure.
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return
         } catch {
             self.error = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
