@@ -512,6 +512,9 @@ struct AddTracksToPlaylistSheet: View {
     @State private var debounceTask: Task<Void, Never>?
     @State private var isAdding = false
     @State private var error: String?
+    /// Generation token so a late-arriving completion of a superseded query cannot overwrite
+    /// the results the user is currently looking at.
+    @State private var searchGeneration: Int = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -587,6 +590,8 @@ struct AddTracksToPlaylistSheet: View {
     private func runSearch(_ q: String) async {
         guard let client = auth.client else { return }
         let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchGeneration += 1
+        let generation = searchGeneration
         if trimmed.isEmpty {
             results = []
             error = nil
@@ -594,6 +599,10 @@ struct AddTracksToPlaylistSheet: View {
         }
         do {
             let r = try await library.search(query: trimmed, client: client)
+            // Bail if a newer search has already started; otherwise a late completion can
+            // overwrite the user's current results with songs from a stale query, and they
+            // could end up adding tracks they never saw.
+            guard generation == searchGeneration else { return }
             results = r.song ?? []
             // A fresh successful result invalidates any stale error message — the user
             // should not see a red "previous query failed" line under live results.
@@ -605,6 +614,7 @@ struct AddTracksToPlaylistSheet: View {
         } catch let urlError as URLError where urlError.code == .cancelled {
             return
         } catch {
+            guard generation == searchGeneration else { return }
             self.error = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
     }

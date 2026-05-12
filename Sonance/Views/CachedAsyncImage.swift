@@ -67,6 +67,7 @@ private final class CoverArtImageLoader: ObservableObject {
     }
 
     func load(cacheKey: String, coverArtID: String, size: Int, client: SubsonicClient) async {
+        let isNewKey = (loadingKey != cacheKey)
         loadingKey = cacheKey
 
         // Fast path: synchronous peek at the in-memory tier so a SwiftUI re-render of an already
@@ -76,7 +77,10 @@ private final class CoverArtImageLoader: ObservableObject {
             return
         }
 
-        if !state.isSuccess { state = .loading }
+        // When the key changes (e.g. a grid cell is reused for a different album), enter
+        // .loading even if the prior state was .success. Otherwise the old bitmap would sit
+        // under the new metadata until the new fetch resolves — a visible data mismatch.
+        if isNewKey || !state.isSuccess { state = .loading }
 
         let image = await CoverArtCache.shared.image(for: coverArtID, size: size, client: client)
         guard !Task.isCancelled, loadingKey == cacheKey else { return }

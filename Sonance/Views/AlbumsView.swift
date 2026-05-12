@@ -182,12 +182,18 @@ struct AlbumsView: View {
             nextOffset = page.count
             hasMore = page.count == Self.pageSize
             loadError = nil
-        } catch let error as SubsonicError {
-            guard generation == loadGeneration else { return }
-            loadError = error.message
         } catch {
             guard generation == loadGeneration else { return }
-            loadError = error.localizedDescription
+            // A failed reload after a sort change leaves `sort` pointing at the new sort but
+            // `albums`/`nextOffset`/`hasMore` carrying the prior sort's state. Clear them so
+            // (a) the error becomes visible (the empty-list branch shows it), and (b) any
+            // subsequent `loadMore` doesn't append mismatched pages against the new sort.
+            albums = []
+            seenIDs = []
+            nextOffset = 0
+            hasMore = false
+            selectedIndex = nil
+            loadError = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
     }
 
