@@ -1,4 +1,6 @@
+import CoreTransferable
 import Foundation
+import UniformTypeIdentifiers
 
 struct SubsonicEnvelope<Body: Decodable>: Decodable {
     let subsonicResponse: SubsonicResponse<Body>
@@ -175,6 +177,7 @@ struct Song: Codable, Identifiable, Hashable {
     let artist: String?
     let album: String?
     var albumId: String? = nil
+    var artistId: String? = nil
     let duration: Int?
     let coverArt: String?
     let starred: String?
@@ -183,6 +186,18 @@ struct Song: Codable, Identifiable, Hashable {
     var bitRate: Int? = nil
     var genre: String? = nil
     var playCount: Int? = nil
+}
+
+extension Song: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .sonanceSong)
+    }
+}
+
+extension UTType {
+    /// Drag-and-drop type for a `Song`. Encoded JSON; the receiver can decode through
+    /// `Transferable`'s `CodableRepresentation`.
+    static let sonanceSong = UTType(exportedAs: "com.alanhuang.Sonance.song")
 }
 
 struct Playlist: Decodable, Identifiable, Hashable {

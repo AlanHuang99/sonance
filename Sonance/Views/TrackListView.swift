@@ -22,6 +22,7 @@ struct TrackListView: View {
                 .tag(song.id)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onPlay(idx) }
+                .draggable(song)
                 .contextMenu {
                     Button("Play") { onPlay(idx) }
                     Button("Play Next") { playNext(song) }

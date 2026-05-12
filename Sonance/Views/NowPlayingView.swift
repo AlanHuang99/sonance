@@ -262,6 +262,10 @@ struct QueuePaneView: View {
                     QueueRow(index: idx + 1, song: song, isCurrent: idx == player.queueIndex)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) { player.jumpTo(idx) }
+                        .dropDestination(for: Song.self) { dropped, _ in
+                            insertDropped(dropped, at: idx)
+                            return true
+                        }
                         .contextMenu {
                             Button("Play") { player.jumpTo(idx) }
                             Button("Remove") { player.removeFromQueue(at: idx) }
@@ -280,7 +284,17 @@ struct QueuePaneView: View {
                 }
             }
             .listStyle(.inset)
+            // A drop on the empty area below the rows appends to the queue.
+            .dropDestination(for: Song.self) { dropped, _ in
+                insertDropped(dropped, at: player.queue.count)
+                return true
+            }
         }
+    }
+
+    private func insertDropped(_ songs: [Song], at index: Int) {
+        guard let client = auth.client, !songs.isEmpty else { return }
+        player.insert(songs, at: index, using: client)
     }
 }
 

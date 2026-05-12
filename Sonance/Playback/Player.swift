@@ -194,6 +194,23 @@ final class Player: ObservableObject {
         saveState()
     }
 
+    /// Insert the given songs at the given index in the user-facing queue. If the queue is
+    /// empty, falls back to `play(songs:startAt:0)`. Indices outside the queue are clamped.
+    /// Used by the Now Playing queue's drag-and-drop target.
+    func insert(_ songs: [Song], at index: Int, using client: SubsonicClient) {
+        activeClient = client
+        if queue.isEmpty {
+            play(songs, startAt: 0, using: client)
+            return
+        }
+        let i = max(0, min(index, queue.count))
+        queue.insert(contentsOf: songs, at: i)
+        if !isShuffled { unshuffledQueue = queue }
+        if i <= queueIndex { queueIndex += songs.count }
+        clearPreload()
+        saveState()
+    }
+
     func jumpTo(_ index: Int) {
         guard index >= 0, index < queue.count else { return }
         queueIndex = index

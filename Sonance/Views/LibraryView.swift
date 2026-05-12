@@ -85,16 +85,24 @@ struct LibraryView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
             NavigationStack(path: $detailPath) {
-                switch navigation.selectedSection {
-                case .albums: AlbumsView()
-                case .artists: ArtistsView()
-                case .songs: SongsView()
-                case .playlists: PlaylistsView()
-                case .favorites: FavoritesView()
-                case .search: SearchView()
-                case .accounts: AccountManagementView()
-                case .none: PlaceholderView(title: "Select a section")
+                Group {
+                    switch navigation.selectedSection {
+                    case .albums: AlbumsView()
+                    case .artists: ArtistsView()
+                    case .songs: SongsView()
+                    case .playlists: PlaylistsView()
+                    case .favorites: FavoritesView()
+                    case .search: SearchView()
+                    case .accounts: AccountManagementView()
+                    case .none: PlaceholderView(title: "Select a section")
+                    }
                 }
+                // Declare both navigation destinations at the stack root so any view in the
+                // detail panel — including the mini-player context menu's "Go to Album/Artist"
+                // pushes — can land on the right destination regardless of which section is
+                // currently active.
+                .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
+                .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
             }
         }
         .task {
@@ -111,6 +119,11 @@ struct LibraryView: View {
             guard let album else { return }
             detailPath.append(album)
             navigation.pendingAlbumNavigation = nil
+        }
+        .onChange(of: navigation.pendingArtistNavigation) { _, artist in
+            guard let artist else { return }
+            detailPath.append(artist)
+            navigation.pendingArtistNavigation = nil
         }
     }
 

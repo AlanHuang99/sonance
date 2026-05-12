@@ -208,6 +208,7 @@ struct MultiDiscTrackList: View {
                         .tag(song.id)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) { onPlayAt(globalIdx) }
+                        .draggable(song)
                         .contextMenu {
                             Button("Play") { onPlayAt(globalIdx) }
                             Button("Play Next") { playNext(song) }
