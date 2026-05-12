@@ -18,7 +18,9 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
   '*.nsp'"`; both surface with a sparkles icon and a yellow "Smart" badge.
 - **Favorites** — sidebar section with Songs / Albums / Artists tabs, backed by `getStarred2`.
   Heart buttons across the app toggle star/unstar via the Subsonic API; state stays in sync via
-  a global `FavoritesStore`.
+  a global `FavoritesStore`. Toggling a heart **does not** trigger a full `getStarred2` re-fetch;
+  the locally-loaded `Starred2Container` is reconciled in place against the store's ID sets.
+  Refresh is still available for manual full reload.
 - **Search** — debounced search3 across artists, albums, and songs
 - Shared in-memory library cache avoids re-fetching album lists, artists, details, playlists,
   favorites, random songs, and repeated search results during normal navigation. Refresh controls
