@@ -39,6 +39,16 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 - Synced lyrics via OpenSubsonic `getLyricsBySongId` — current line highlighted, auto-scrolls,
   click any line to seek there
 
+### System Now Playing
+
+- `MPNowPlayingInfoCenter` is updated on every track change, play/pause toggle, and seek with
+  title, artist, album, duration, elapsed playback time, and playback rate. Artwork (downsampled
+  to 600 px) loads from `CoverArtCache` and is published once per song. macOS Control Center, the
+  menu-bar Now Playing widget, and Sonos handoff see the current track.
+- `MPRemoteCommandCenter` is wired for play, pause, toggle play/pause, next, previous, and
+  change-playback-position so media keys, AirPods double-tap, and Control Center scrubbing all
+  steer playback.
+
 ### Mini-player and Now Playing
 
 - Bottom mini-player: cover, title/artist, heart, shuffle, prev/play-pause/next, repeat,

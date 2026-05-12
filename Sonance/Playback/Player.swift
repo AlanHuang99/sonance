@@ -58,8 +58,10 @@ final class Player: ObservableObject {
                 self.currentTime = (t.isFinite && t >= 0) ? t : 0
                 if let item = self.avPlayer.currentItem {
                     let d = item.duration.seconds
-                    if d.isFinite, d > 0 {
+                    if d.isFinite, d > 0, abs(d - self.duration) > 0.1 {
                         self.duration = d
+                        // Asset just became durationally known — refresh Now Playing.
+                        self.syncNowPlaying()
                     }
                 }
                 // Submission scrobble at 50% (or 4 minutes), per Subsonic convention.
@@ -79,6 +81,17 @@ final class Player: ObservableObject {
                 }
             }
         }
+        NowPlayingCenter.shared.attach(player: self)
+    }
+
+    private func syncNowPlaying() {
+        NowPlayingCenter.shared.update(
+            song: currentSong,
+            isPlaying: isPlaying,
+            elapsed: currentTime,
+            duration: duration,
+            client: activeClient
+        )
     }
 
     func restorePaused(client: SubsonicClient) {
@@ -98,6 +111,7 @@ final class Player: ObservableObject {
         volume = state.volume
         avPlayer.volume = volume
         isPlaying = false  // user must press play to actually start
+        syncNowPlaying()
     }
 
     private func saveState() {
@@ -216,6 +230,7 @@ final class Player: ObservableObject {
             avPlayer.play()
             isPlaying = true
         }
+        NowPlayingCenter.shared.updatePlaybackAnchor(isPlaying: isPlaying, elapsed: currentTime)
     }
 
     func next() { advanceOrStop() }
@@ -233,6 +248,8 @@ final class Player: ObservableObject {
 
     func seek(to seconds: TimeInterval) {
         avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 1000))
+        currentTime = seconds
+        NowPlayingCenter.shared.updatePlaybackAnchor(isPlaying: isPlaying, elapsed: seconds)
     }
 
     func stop() {
@@ -243,6 +260,7 @@ final class Player: ObservableObject {
         currentTime = 0
         duration = 0
         hasScrobbledCurrent = false
+        NowPlayingCenter.shared.clear()
     }
 
     // MARK: - Repeat / Shuffle
@@ -296,6 +314,7 @@ final class Player: ObservableObject {
         isPlaying = true
         duration = TimeInterval(song.duration ?? 0)
         saveState()
+        syncNowPlaying()
 
         // "Now playing" scrobble
         Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
