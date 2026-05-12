@@ -89,12 +89,18 @@ final class NowPlayingCenter {
                 guard let self else { return }
                 guard self.artworkLoadingKey == key else { return }
                 self.artworkLoadingKey = nil
-                guard let image else { return }
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                info[MPMediaItemPropertyArtwork] = artwork
+                if let image {
+                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    info[MPMediaItemPropertyArtwork] = artwork
+                    self.publishedArtworkKey = key
+                } else {
+                    // Fetch returned nil (cache miss + network error, or undecodable bytes).
+                    // Drop the previous song's artwork so Control Center doesn't keep showing it.
+                    info[MPMediaItemPropertyArtwork] = nil
+                    self.publishedArtworkKey = nil
+                }
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-                self.publishedArtworkKey = key
             }
         }
     }

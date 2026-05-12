@@ -141,19 +141,35 @@ final class SubsonicClient: @unchecked Sendable {
         ])
     }
 
-    /// Replace a playlist's contents in a single round trip by removing every existing index
-    /// and re-adding the given songs in the new order. Subsonic permits repeated query
-    /// parameters (`songIndexToRemove`, `songIdToAdd`) on `updatePlaylist`; the server applies
-    /// removals before additions.
-    func playlistReplaceContents(playlistID: String, currentCount: Int, songIDs: [String]) async throws {
-        var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
-        for i in 0..<currentCount {
-            query.append(URLQueryItem(name: "songIndexToRemove", value: String(i)))
+    /// Replace a playlist's contents by removing every existing index and adding the given
+    /// songs in the new order. Implemented as chunked `updatePlaylist` calls so the query
+    /// string of any one request stays well under common server/proxy URL limits.
+    ///
+    /// 1. Remove the existing entries in batches, highest index first within each batch so
+    ///    that indices remain valid even if the server processes them in declared order.
+    /// 2. Append the new songs in batches, in the requested order.
+    ///
+    /// `chunkSize` defaults to 100 items per request (~3 KB of query data on top of the
+    /// ~200 bytes of auth params), so even an extreme reorder of a thousand-track playlist
+    /// stays under 4 KB per request.
+    func playlistReplaceContents(playlistID: String, currentCount: Int, songIDs: [String], chunkSize: Int = 100) async throws {
+        if currentCount > 0 {
+            let descending = (0..<currentCount).reversed()
+            for chunk in descending.chunked(into: max(1, chunkSize)) {
+                var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
+                for i in chunk {
+                    query.append(URLQueryItem(name: "songIndexToRemove", value: String(i)))
+                }
+                let _: PingResponse = try await getQuery("updatePlaylist", items: query)
+            }
         }
-        for id in songIDs {
-            query.append(URLQueryItem(name: "songIdToAdd", value: id))
+        for chunk in songIDs.chunked(into: max(1, chunkSize)) {
+            var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
+            for id in chunk {
+                query.append(URLQueryItem(name: "songIdToAdd", value: id))
+            }
+            let _: PingResponse = try await getQuery("updatePlaylist", items: query)
         }
-        let _: PingResponse = try await getQuery("updatePlaylist", items: query)
     }
 
     func streamURL(id: String) -> URL? {
@@ -280,5 +296,25 @@ final class SubsonicClient: @unchecked Sendable {
     private static func md5(_ s: String) -> String {
         let digest = Insecure.MD5.hash(data: Data(s.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private extension Collection {
+    /// Split into batches of up to `size` elements. Used to keep `updatePlaylist` URLs under
+    /// common server/proxy length limits for large playlists.
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [Array(self)] }
+        var result: [[Element]] = []
+        var current: [Element] = []
+        current.reserveCapacity(size)
+        for element in self {
+            current.append(element)
+            if current.count == size {
+                result.append(current)
+                current.removeAll(keepingCapacity: true)
+            }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
     }
 }

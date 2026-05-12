@@ -143,6 +143,7 @@ final class CoverArtCacheTests: XCTestCase {
 final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var responder: ((URLRequest) -> Data?)?
     nonisolated(unsafe) private static var _callCount = 0
+    nonisolated(unsafe) private static var _capturedURLs: [URL] = []
     private static let lock = NSLock()
 
     static var callCount: Int {
@@ -150,9 +151,15 @@ final class StubURLProtocol: URLProtocol {
         return _callCount
     }
 
+    static var capturedURLs: [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return _capturedURLs
+    }
+
     static func reset() {
         lock.lock(); defer { lock.unlock() }
         _callCount = 0
+        _capturedURLs = []
         responder = nil
     }
 
@@ -162,6 +169,7 @@ final class StubURLProtocol: URLProtocol {
     override func startLoading() {
         Self.lock.lock()
         Self._callCount += 1
+        if let url = request.url { Self._capturedURLs.append(url) }
         let responder = Self.responder
         Self.lock.unlock()
 

@@ -141,18 +141,42 @@ final class IntegrationTests: XCTestCase {
         XCTAssertNil(song.track)
     }
 
-    // MARK: - M9 — Subsonic playlist endpoints build the right URLs
+    // MARK: - M9 — playlistReplaceContents chunks large requests
 
-    func testPlaylistEndpointURLsHaveRequiredParams() throws {
-        let creds = ServerCredentials(serverURL: "http://example.test", username: "u", password: "p")
-        let _ = SubsonicClient(credentials: creds)
-        // Indirectly: the SubsonicClient exposes coverArtURL with stableAuth; we already
-        // tested that. Playlist endpoint URLs aren't exposed directly. As a smoke test,
-        // make sure createPlaylist's call site compiles and the API surface is reachable.
-        // The actual network call is exercised in CoverArtCacheTests via StubURLProtocol;
-        // adding a full playlist mock here is more code than it's worth — the wire format is
-        // documented and trivial.
-        XCTAssertTrue(true)
+    func testPlaylistReplaceContentsChunksLargePlaylists() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.responder = { _ in Self.subsonicOKResponse() }
+        let client = stubClient()
+
+        // 250 existing + 250 new → 5 chunked requests at the default 100-per-chunk size
+        // (3 removal chunks: 100 + 100 + 50; 3 addition chunks: 100 + 100 + 50).
+        let newIDs = (0..<250).map { "song-\($0)" }
+        try await client.playlistReplaceContents(
+            playlistID: "p1",
+            currentCount: 250,
+            songIDs: newIDs
+        )
+        XCTAssertEqual(StubURLProtocol.callCount, 6, "expected 3 remove + 3 add chunks for 250+250 with chunk size 100")
+
+        // Each request URL should be well under 8 KB even before any future growth in
+        // auth / param overhead.
+        for url in StubURLProtocol.capturedURLs {
+            XCTAssertLessThan(url.absoluteString.count, 8192, "URL exceeded safe length: \(url.absoluteString.count) bytes")
+        }
+    }
+
+    func testPlaylistReplaceContentsHandlesEmptyStart() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.responder = { _ in Self.subsonicOKResponse() }
+        let client = stubClient()
+
+        try await client.playlistReplaceContents(playlistID: "p1", currentCount: 0, songIDs: ["a", "b"])
+        // currentCount 0 → no removal request; one addition request.
+        XCTAssertEqual(StubURLProtocol.callCount, 1)
+    }
+
+    private static func subsonicOKResponse() -> Data {
+        Data(#"{"subsonic-response":{"status":"ok","version":"1.16.1"}}"#.utf8)
     }
 
     // MARK: - M4 — Reconcile mirror logic (pure function check)

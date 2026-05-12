@@ -29,7 +29,12 @@ struct SonanceApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(replacing: .textEditing) {
+            // Add Find alongside the system text-editing items, not in place of them.
+            // `replacing:` would wipe out any default Find/Find-Next slots SwiftUI may install;
+            // `after:` injects our shortcut while preserving anything the platform provides.
+            // Standard Edit actions (cut/copy/paste/undo/select-all) live in the separate
+            // `.pasteboard` and `.undoRedo` groups and are unaffected either way.
+            CommandGroup(after: .textEditing) {
                 Button("Find") { navigation.focusSearch() }
                     .keyboardShortcut("f", modifiers: [.command])
             }

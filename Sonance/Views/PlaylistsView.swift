@@ -400,11 +400,13 @@ struct EditablePlaylistTrackList: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
-    @State private var selectedSongID: Song.ID?
+    /// Positional selection. A playlist may legitimately contain the same `Song.id` more
+    /// than once, so keying selection on the song's identity would coalesce duplicate rows.
+    @State private var selectedPosition: Int?
 
     var body: some View {
-        List(selection: $selectedSongID) {
-            ForEach(Array(songs.enumerated()), id: \.element.id) { idx, song in
+        List(selection: $selectedPosition) {
+            ForEach(Array(songs.enumerated()), id: \.offset) { idx, song in
                 TrackRow(
                     index: song.track ?? (idx + 1),
                     song: song,
@@ -412,9 +414,10 @@ struct EditablePlaylistTrackList: View {
                     isFavorite: favorites.isSongFavorite(song.id),
                     onToggleFavorite: { toggleFavorite(song) }
                 )
-                .tag(song.id)
+                .tag(idx)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onPlay(idx) }
+                .draggable(song)
                 .contextMenu {
                     Button("Play") { onPlay(idx) }
                     Button("Remove from Playlist", role: .destructive) { onRemove(idx) }
@@ -436,8 +439,7 @@ struct EditablePlaylistTrackList: View {
         }
         .listStyle(.inset)
         .onKeyPress(.return) {
-            guard let id = selectedSongID,
-                  let idx = songs.firstIndex(where: { $0.id == id }) else { return .ignored }
+            guard let idx = selectedPosition, idx >= 0, idx < songs.count else { return .ignored }
             onPlay(idx)
             return .handled
         }
@@ -553,15 +555,22 @@ struct AddTracksToPlaylistSheet: View {
 
     private func addSelected() async {
         guard let client = auth.client else { return }
-        let toAdd = Array(selected.subtracting(existingIDs))
-        guard !toAdd.isEmpty else { return }
+        // Walk `results` (the order the user sees on screen) and pick the selected/not-yet-
+        // in-playlist IDs in that order. Using `Array(selected.subtracting(...))` would
+        // produce arbitrary set iteration order, so multi-track additions could land in the
+        // playlist in a different order than the user picked them.
+        let toAdd = results.lazy
+            .map(\.id)
+            .filter { selected.contains($0) && !existingIDs.contains($0) }
+        let ordered = Array(toAdd)
+        guard !ordered.isEmpty else { return }
         isAdding = true
         defer { isAdding = false }
         do {
-            for id in toAdd {
+            for id in ordered {
                 try await client.playlistAddSong(playlistID: playlistID, songID: id)
             }
-            onAdded(toAdd)
+            onAdded(ordered)
             dismiss()
         } catch {
             self.error = (error as? SubsonicError)?.message ?? error.localizedDescription

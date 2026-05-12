@@ -27,6 +27,11 @@ struct AlbumsView: View {
     /// Bumped on every sort change so a stale in-flight load can detect that it shouldn't
     /// apply its results.
     @State private var loadGeneration: Int = 0
+    /// Next offset to request from the server. Tracked separately from `albums.count` because
+    /// local de-duplication via `seenIDs` (relevant for `random`) means the array can be
+    /// shorter than what the server has returned; without this, `loadMore` would under-advance
+    /// and re-query the same range repeatedly.
+    @State private var nextOffset: Int = 0
     @State private var selectedIndex: Int?
     @State private var columnCount: Int = 1
     @FocusState private var gridFocused: Bool
@@ -166,6 +171,9 @@ struct AlbumsView: View {
             guard generation == loadGeneration else { return }
             albums = page
             seenIDs = Set(page.map(\.id))
+            // Advance by the server's reported page size, not the (potentially smaller) array
+            // size after de-duplication.
+            nextOffset = page.count
             hasMore = page.count == Self.pageSize
             loadError = nil
         } catch let error as SubsonicError {
@@ -187,15 +195,18 @@ struct AlbumsView: View {
             let page = try await client.albumList(
                 type: sort.rawValue,
                 size: Self.pageSize,
-                offset: albums.count
+                offset: nextOffset
             )
             guard generation == loadGeneration else { return }
             // Skip anything we have already (covers `random` sort, which the server may overlap).
             let fresh = page.filter { !seenIDs.contains($0.id) }
             for album in fresh { seenIDs.insert(album.id) }
             albums.append(contentsOf: fresh)
+            // Advance the server-side cursor by what the server returned, regardless of how
+            // much we kept locally.
+            nextOffset += page.count
             // If the server returned fewer than a full page we have reached the tail.
-            hasMore = page.count == Self.pageSize && !fresh.isEmpty
+            hasMore = page.count == Self.pageSize
         } catch {
             // A pagination error doesn't clear the existing grid; surface in the existing
             // load-error slot only if we have no other albums to show.
