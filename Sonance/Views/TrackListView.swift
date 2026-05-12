@@ -7,17 +7,19 @@ struct TrackListView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @State private var selectedSongID: Song.ID?
 
     var body: some View {
-        List {
+        List(selection: $selectedSongID) {
             ForEach(Array(songs.enumerated()), id: \.element.id) { idx, song in
                 TrackRow(
-                    index: idx + 1,
+                    index: trackNumberLabel(song: song, fallback: idx + 1),
                     song: song,
                     isCurrent: player.currentSong?.id == song.id,
                     isFavorite: favorites.isSongFavorite(song.id),
                     onToggleFavorite: { toggleFavorite(song) }
                 )
+                .tag(song.id)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onPlay(idx) }
                 .contextMenu {
@@ -32,6 +34,17 @@ struct TrackListView: View {
             }
         }
         .listStyle(.inset)
+        .onKeyPress(.return) {
+            guard let id = selectedSongID,
+                  let idx = songs.firstIndex(where: { $0.id == id }) else { return .ignored }
+            onPlay(idx)
+            return .handled
+        }
+    }
+
+    /// Server-reported track number when available, otherwise the row's position in the list.
+    private func trackNumberLabel(song: Song, fallback: Int) -> Int {
+        song.track ?? fallback
     }
 
     private func toggleFavorite(_ song: Song) {

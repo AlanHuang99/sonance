@@ -16,6 +16,7 @@ enum AlbumSort: String, CaseIterable, Identifiable {
 
 struct AlbumsView: View {
     @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var navigation: NavigationCoordinator
     @State private var albums: [Album] = []
     @State private var seenIDs: Set<String> = []
     @State private var loadError: String?
@@ -26,6 +27,9 @@ struct AlbumsView: View {
     /// Bumped on every sort change so a stale in-flight load can detect that it shouldn't
     /// apply its results.
     @State private var loadGeneration: Int = 0
+    @State private var selectedIndex: Int?
+    @State private var columnCount: Int = 1
+    @FocusState private var gridFocused: Bool
 
     private static let pageSize = 100
 
@@ -42,9 +46,15 @@ struct AlbumsView: View {
                     sortMenu
                         .padding(.horizontal, 20)
                         .padding(.top, 12)
+                    GeometryReader { geom in
+                        Color.clear
+                            .onAppear { updateColumnCount(width: geom.size.width) }
+                            .onChange(of: geom.size.width) { _, w in updateColumnCount(width: w) }
+                    }
+                    .frame(height: 0)
                     LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(albums) { album in
-                            AlbumGridItem(album: album)
+                        ForEach(Array(albums.enumerated()), id: \.element.id) { idx, album in
+                            AlbumGridItem(album: album, isSelected: selectedIndex == idx)
                         }
                         if hasMore && !albums.isEmpty {
                             loadMoreSentinel
@@ -55,6 +65,9 @@ struct AlbumsView: View {
                 }
             }
         }
+        .focusable()
+        .focused($gridFocused)
+        .focusEffectDisabled()
         .navigationTitle("Albums")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -71,6 +84,29 @@ struct AlbumsView: View {
         }
         .task { await reload() }
         .onChange(of: sort) { _, _ in Task { await reload() } }
+        .onKeyPress(.leftArrow) { moveSelection(by: -1); return .handled }
+        .onKeyPress(.rightArrow) { moveSelection(by: 1); return .handled }
+        .onKeyPress(.upArrow) { moveSelection(by: -columnCount); return .handled }
+        .onKeyPress(.downArrow) { moveSelection(by: columnCount); return .handled }
+        .onKeyPress(.return) {
+            guard let i = selectedIndex, i >= 0, i < albums.count else { return .ignored }
+            navigation.requestAlbumNavigation(albums[i])
+            return .handled
+        }
+    }
+
+    private func updateColumnCount(width: CGFloat) {
+        // Mirror `.adaptive(minimum: 160)` with 16 pt spacing and 20 pt padding on each side.
+        let usable = max(0, width - 40)
+        let cell = 160 + 16
+        columnCount = max(1, Int(usable / CGFloat(cell)))
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !albums.isEmpty else { return }
+        let current = selectedIndex ?? -1
+        let next = max(0, min(albums.count - 1, current + delta))
+        selectedIndex = next
     }
 
     private var sortMenu: some View {
@@ -173,6 +209,7 @@ struct AlbumsView: View {
 /// NavigationLink + tile + context menu, fetches album detail for queue actions.
 struct AlbumGridItem: View {
     let album: Album
+    var isSelected: Bool = false
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
@@ -182,6 +219,10 @@ struct AlbumGridItem: View {
     var body: some View {
         NavigationLink(value: album) {
             AlbumTile(album: album, client: auth.client, isFavorite: favorites.isAlbumFavorite(album.id))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.accentColor, lineWidth: isSelected ? 2 : 0)
+                )
         }
         .buttonStyle(.plain)
         .contextMenu {

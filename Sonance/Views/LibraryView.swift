@@ -29,11 +29,16 @@ struct LibraryView: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
     @EnvironmentObject var library: LibraryStore
-    @State private var selection: LibrarySection? = .albums
+    @EnvironmentObject var navigation: NavigationCoordinator
+    @State private var detailPath = NavigationPath()
+
+    private var selectionBinding: Binding<LibrarySection?> {
+        Binding(get: { navigation.selectedSection }, set: { navigation.selectedSection = $0 })
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
+            List(selection: selectionBinding) {
                 ForEach(LibrarySection.allCases, id: \.self) { section in
                     Label(section.rawValue, systemImage: section.systemImage)
                 }
@@ -79,8 +84,8 @@ struct LibraryView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
-            NavigationStack {
-                switch selection {
+            NavigationStack(path: $detailPath) {
+                switch navigation.selectedSection {
                 case .albums: AlbumsView()
                 case .artists: ArtistsView()
                 case .songs: SongsView()
@@ -96,6 +101,16 @@ struct LibraryView: View {
             if let client = auth.client {
                 await favorites.refresh(client: client)
             }
+        }
+        .onChange(of: navigation.selectedSection) { _, _ in
+            // A section switch resets the detail stack so ⌘1..⌘5 always lands on the section's
+            // root view instead of a stale leaf from the prior section's stack.
+            detailPath = NavigationPath()
+        }
+        .onChange(of: navigation.pendingAlbumNavigation) { _, album in
+            guard let album else { return }
+            detailPath.append(album)
+            navigation.pendingAlbumNavigation = nil
         }
     }
 

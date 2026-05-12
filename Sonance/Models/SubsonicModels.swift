@@ -170,9 +170,15 @@ struct Song: Codable, Identifiable, Hashable {
     let title: String
     let artist: String?
     let album: String?
+    var albumId: String? = nil
     let duration: Int?
     let coverArt: String?
     let starred: String?
+    var track: Int? = nil
+    var discNumber: Int? = nil
+    var bitRate: Int? = nil
+    var genre: String? = nil
+    var playCount: Int? = nil
 }
 
 struct Playlist: Decodable, Identifiable, Hashable {

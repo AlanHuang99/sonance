@@ -78,6 +78,11 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 - **Space** — play / pause (when no text field has focus)
 - **⌘P** — play / pause (always)
 - **⌘→ / ⌘←** — next / previous track
+- **⌘F** — switch to Search and focus the query field
+- **⌘1..⌘5** — switch sidebar section (Albums / Artists / Songs / Playlists / Favorites)
+- **⌘L** — open the current track's album (uses `albumId` if the server returned one)
+- In **track lists**: ↑/↓ select rows, **Return** plays the highlighted track
+- In the **Albums grid**: ←/→/↑/↓ move a selection ring across tiles, **Return** opens the album
 
 ### Persistence
 

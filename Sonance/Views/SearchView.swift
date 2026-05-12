@@ -4,12 +4,14 @@ struct SearchView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var navigation: NavigationCoordinator
     @State private var query = ""
     @State private var result: SearchResult?
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var debounceTask: Task<Void, Never>?
     @State private var searchGeneration = UUID()
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +19,7 @@ struct SearchView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search artists, albums, songs", text: $query)
                     .textFieldStyle(.roundedBorder)
+                    .focused($searchFieldFocused)
                     .onChange(of: query) { _, newValue in scheduleSearch(newValue) }
             }
             .padding(20)
@@ -26,6 +29,10 @@ struct SearchView: View {
         .navigationTitle("Search")
         .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
         .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+        .onAppear { searchFieldFocused = true }
+        .onChange(of: navigation.searchFocusRequest) { _, _ in
+            searchFieldFocused = true
+        }
     }
 
     @ViewBuilder
