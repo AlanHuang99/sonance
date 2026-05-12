@@ -7,9 +7,18 @@ final class SubsonicClient: @unchecked Sendable {
     private let clientName = "Sonance"
     private let apiVersion = "1.16.1"
 
+    /// Stable (salt, token) pair memoized per client instance for cover-art and stream URLs.
+    /// Subsonic permits salt reuse; pinning these for media keeps URLs identical across calls so
+    /// downstream caches (URLCache, AVPlayer, our cover-art cache key) see consistent identities.
+    private let mediaSalt: String
+    private let mediaToken: String
+
     init(credentials: ServerCredentials, urlSession: URLSession = .shared) {
         self.credentials = credentials
         self.urlSession = urlSession
+        let salt = Self.randomSalt()
+        self.mediaSalt = salt
+        self.mediaToken = Self.md5(credentials.password + salt)
     }
 
     func ping() async throws {
@@ -99,16 +108,16 @@ final class SubsonicClient: @unchecked Sendable {
     }
 
     func streamURL(id: String) -> URL? {
-        try? buildURL(endpoint: "stream", params: ["id": id])
+        try? buildURL(endpoint: "stream", params: ["id": id], stableAuth: true)
     }
 
     func coverArtURL(id: String, size: Int = 300) -> URL? {
-        try? buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
+        try? buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)], stableAuth: true)
     }
 
     func coverArtData(id: String, size: Int = 300) async throws -> Data {
         NetworkDiagnostics.record("getCoverArt:\(size)")
-        let url = try buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
+        let url = try buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)], stableAuth: true)
         let (data, response) = try await urlSession.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw SubsonicError(code: http.statusCode, message: "Cover art request failed with HTTP \(http.statusCode)")
@@ -135,7 +144,7 @@ final class SubsonicClient: @unchecked Sendable {
         return body
     }
 
-    private func buildURL(endpoint: String, params: [String: String]) throws -> URL {
+    private func buildURL(endpoint: String, params: [String: String], stableAuth: Bool = false) throws -> URL {
         let trimmed = credentials.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed) else {
             throw SubsonicError(code: -1, message: "Invalid server URL")
@@ -143,8 +152,15 @@ final class SubsonicClient: @unchecked Sendable {
         var path = components.path
         if !path.hasSuffix("/") { path += "/" }
         components.path = path + "rest/" + endpoint
-        let salt = Self.randomSalt()
-        let token = Self.md5(credentials.password + salt)
+        let salt: String
+        let token: String
+        if stableAuth {
+            salt = mediaSalt
+            token = mediaToken
+        } else {
+            salt = Self.randomSalt()
+            token = Self.md5(credentials.password + salt)
+        }
         var items: [URLQueryItem] = [
             URLQueryItem(name: "u", value: credentials.username),
             URLQueryItem(name: "t", value: token),

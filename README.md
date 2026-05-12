@@ -23,8 +23,11 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 - Shared in-memory library cache avoids re-fetching album lists, artists, details, playlists,
   favorites, random songs, and repeated search results during normal navigation. Refresh controls
   bypass cache intentionally.
-- Cover art uses stable cache keys and an `NSCache` of decoded `NSImage` values, so rotating
-  Subsonic auth tokens do not defeat image reuse.
+- Cover art is served by a two-tier `CoverArtCache` actor: an in-memory `NSCache` capped at 64 MB
+  by decoded-pixel cost, and a JPEG/PNG on-disk cache under
+  `~/Library/Caches/com.alanhuang.Sonance/covers/` capped at 200 MB with LRU eviction on first
+  miss after launch. Cover-art and stream URLs use a memoized salt+token per `SubsonicClient`,
+  so URLs stay stable across SwiftUI re-renders and `URLCache`/`AVPlayer` can identify them.
 
 ### Playback
 
