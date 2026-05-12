@@ -141,18 +141,33 @@ final class SubsonicClient: @unchecked Sendable {
         ])
     }
 
-    /// Replace a playlist's contents by removing every existing index and adding the given
-    /// songs in the new order. Implemented as chunked `updatePlaylist` calls so the query
-    /// string of any one request stays well under common server/proxy URL limits.
+    /// Replace a playlist's contents by appending the new desired songs first, then removing
+    /// the original entries. Chunked across `updatePlaylist` calls so each request's URL stays
+    /// well under common server/proxy length limits.
     ///
-    /// 1. Remove the existing entries in batches, highest index first within each batch so
-    ///    that indices remain valid even if the server processes them in declared order.
-    /// 2. Append the new songs in batches, in the requested order.
+    /// Phase 1 — append the new songs in the requested order. After this phase the playlist
+    ///           reads `[old..., new...]`.
+    /// Phase 2 — remove the original entries, which still live at indices `0..<currentCount`
+    ///           because new additions were appended to the tail. Within each removal chunk,
+    ///           indices descend so that pending removals stay valid even if the server
+    ///           processes them in declared order. After this phase the playlist reads
+    ///           `[new...]`.
+    ///
+    /// Ordering additions before removals makes a partial failure recoverable: a transient
+    /// error between phases leaves the playlist holding both old and new (a visible mess the
+    /// user can re-attempt), instead of the reverse order which would leave the playlist
+    /// partially or fully empty (data loss).
     ///
     /// `chunkSize` defaults to 100 items per request (~3 KB of query data on top of the
-    /// ~200 bytes of auth params), so even an extreme reorder of a thousand-track playlist
-    /// stays under 4 KB per request.
+    /// ~200 bytes of auth params), so even a thousand-track reorder stays under 4 KB per call.
     func playlistReplaceContents(playlistID: String, currentCount: Int, songIDs: [String], chunkSize: Int = 100) async throws {
+        for chunk in songIDs.chunked(into: max(1, chunkSize)) {
+            var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
+            for id in chunk {
+                query.append(URLQueryItem(name: "songIdToAdd", value: id))
+            }
+            let _: PingResponse = try await getQuery("updatePlaylist", items: query)
+        }
         if currentCount > 0 {
             let descending = (0..<currentCount).reversed()
             for chunk in descending.chunked(into: max(1, chunkSize)) {
@@ -162,13 +177,6 @@ final class SubsonicClient: @unchecked Sendable {
                 }
                 let _: PingResponse = try await getQuery("updatePlaylist", items: query)
             }
-        }
-        for chunk in songIDs.chunked(into: max(1, chunkSize)) {
-            var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
-            for id in chunk {
-                query.append(URLQueryItem(name: "songIdToAdd", value: id))
-            }
-            let _: PingResponse = try await getQuery("updatePlaylist", items: query)
         }
     }
 

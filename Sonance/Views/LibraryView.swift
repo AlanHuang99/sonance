@@ -33,7 +33,20 @@ struct LibraryView: View {
     @State private var detailPath = NavigationPath()
 
     private var selectionBinding: Binding<LibrarySection?> {
-        Binding(get: { navigation.selectedSection }, set: { navigation.selectedSection = $0 })
+        // Sidebar selection: route writes through `switch_(to:)` so a user-initiated section
+        // change also bumps `sectionResetSignal` and resets the detail path. Direct writes to
+        // `selectedSection` (from `requestAlbumNavigation` et al) skip the reset signal so the
+        // just-pushed destination survives.
+        Binding(
+            get: { navigation.selectedSection },
+            set: { newValue in
+                if let newValue {
+                    navigation.switch_(to: newValue)
+                } else {
+                    navigation.selectedSection = nil
+                }
+            }
+        )
     }
 
     var body: some View {
@@ -110,17 +123,13 @@ struct LibraryView: View {
                 await favorites.refresh(client: client)
             }
         }
-        .onChange(of: navigation.selectedSection) { _, _ in
-            // A section switch resets the detail stack so ⌘1..⌘5 always lands on the section's
-            // root view instead of a stale leaf from the prior section's stack. Skip the reset
-            // if a pending Album / Artist navigation is in flight — `requestAlbumNavigation`
-            // can switch the section AND set the pending album in the same gesture, and
-            // SwiftUI fires the two `onChange` handlers in an unspecified order. Letting the
-            // pending-nav handler take over avoids racing the path back to empty after the
-            // album is appended.
-            if navigation.pendingAlbumNavigation == nil && navigation.pendingArtistNavigation == nil {
-                detailPath = NavigationPath()
-            }
+        .onChange(of: navigation.sectionResetSignal) { _, _ in
+            // A user-initiated section switch (sidebar click, ⌘1..⌘5, ⌘F) resets the detail
+            // stack so the new section opens at its root. Programmatic section changes from
+            // `requestAlbumNavigation` / `requestArtistNavigation` do *not* bump this signal,
+            // so the just-pushed destination survives — fixing the race the previous
+            // `onChange(of: selectedSection)` had with the pending-nav handler.
+            detailPath = NavigationPath()
         }
         .onChange(of: navigation.pendingAlbumNavigation) { _, album in
             guard let album else { return }

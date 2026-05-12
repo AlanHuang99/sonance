@@ -433,8 +433,12 @@ struct EditablePlaylistTrackList: View {
                 onMoved(newOrder)
             }
             .onDelete { indexSet in
-                guard let i = indexSet.first else { return }
-                onRemove(i)
+                // `onDelete` passes every selected offset. Remove in descending order so each
+                // `onRemove` call sees a still-valid index — removing a low index first would
+                // shift the remaining indices and target the wrong rows.
+                for i in indexSet.sorted(by: >) {
+                    onRemove(i)
+                }
             }
         }
         .listStyle(.inset)
@@ -525,7 +529,10 @@ struct AddTracksToPlaylistSheet: View {
     }
 
     private var addCount: Int {
-        selected.subtracting(existingIDs).count
+        // Derive the count from the same visible result set `addSelected` will iterate over,
+        // so stale selections held over from a previous query don't inflate the button's
+        // count or enable a no-op "Add N" press after the user refines their search.
+        results.lazy.filter { selected.contains($0.id) && !existingIDs.contains($0.id) }.count
     }
 
     private func scheduleSearch() {

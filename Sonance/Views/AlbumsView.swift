@@ -101,10 +101,16 @@ struct AlbumsView: View {
     }
 
     private func updateColumnCount(width: CGFloat) {
-        // Mirror `.adaptive(minimum: 160)` with 16 pt spacing and 20 pt padding on each side.
+        // Mirror `LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)])` with
+        // 20 pt horizontal padding on each side. For N columns the grid spans
+        //     N * 160 + (N - 1) * 16  ==  176N - 16  pt
+        // (no trailing spacing after the last column), so the largest N that still fits is
+        //     N = floor((usable + 16) / 176).
+        // The earlier `usable / 176` formula under-counted at widths where an extra column
+        // exactly fit, making up/down arrow navigation jump by too few cells.
         let usable = max(0, width - 40)
-        let cell = 160 + 16
-        columnCount = max(1, Int(usable / CGFloat(cell)))
+        let cell: CGFloat = 160 + 16
+        columnCount = max(1, Int((usable + 16) / cell))
     }
 
     private func moveSelection(by delta: Int) {

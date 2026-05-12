@@ -12,6 +12,12 @@ final class NavigationCoordinator: ObservableObject {
     /// Bumped each time the user requests focus on the search field (⌘F). `SearchView`
     /// observes this and re-applies `FocusState` true.
     @Published var searchFocusRequest: Int = 0
+    /// Bumped each time the user explicitly switches sections (sidebar click, ⌘1..⌘5, ⌘F).
+    /// `LibraryView` observes this to reset its detail `NavigationStack` path. Distinct from
+    /// `selectedSection` so that programmatic section changes from `requestAlbumNavigation` /
+    /// `requestArtistNavigation` can flip the section *without* wiping the just-pushed
+    /// destination.
+    @Published var sectionResetSignal: Int = 0
     /// Optional album the user wants to jump to. `LibraryView` consumes it by pushing onto
     /// the detail `NavigationStack` and then clears it.
     @Published var pendingAlbumNavigation: Album?
@@ -21,15 +27,20 @@ final class NavigationCoordinator: ObservableObject {
     func focusSearch() {
         if selectedSection != .search {
             selectedSection = .search
+            sectionResetSignal &+= 1
         }
         searchFocusRequest &+= 1
     }
 
     func switch_(to section: LibrarySection) {
         selectedSection = section
+        sectionResetSignal &+= 1
     }
 
     func requestAlbumNavigation(_ album: Album) {
+        // Flip the section directly without bumping `sectionResetSignal`. The pending-album
+        // handler in `LibraryView` is responsible for appending to `detailPath`; the section
+        // change here must not race with a path reset.
         if selectedSection != .albums {
             selectedSection = .albums
         }
