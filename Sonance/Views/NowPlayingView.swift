@@ -13,6 +13,17 @@ struct NowPlayingView: View {
     }
 
     var body: some View {
+        contentStack
+            .background(
+                NowPlayingBackdrop(
+                    coverArtID: player.currentSong?.coverArt,
+                    client: auth.client
+                )
+                .ignoresSafeArea()
+            )
+    }
+
+    private var contentStack: some View {
         VStack(spacing: 0) {
             // Top chrome: drag handle + close
             HStack {
@@ -172,6 +183,62 @@ struct NowPlayingView: View {
     private func formatTime(_ s: TimeInterval) -> String {
         let total = Int(s.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+/// Ambient backdrop: the current cover, scaled up and heavily blurred behind a translucent
+/// material so text on top stays legible against either very light or very dark artwork.
+struct NowPlayingBackdrop: View {
+    let coverArtID: String?
+    let client: SubsonicClient?
+    @State private var image: NSImage?
+    @State private var imageKey: String?
+    @State private var loadingKey: String?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            Group {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .scaleEffect(2.0)
+                        .blur(radius: 60, opaque: true)
+                        .clipped()
+                } else {
+                    Color.black
+                }
+            }
+            .id(imageKey ?? "none")
+            .transition(.opacity)
+        }
+        .overlay(.regularMaterial.opacity(0.6))
+        .animation(.easeInOut(duration: 0.4), value: imageKey)
+        .task(id: cacheKey) { await load() }
+    }
+
+    private var cacheKey: String? {
+        guard let coverArtID, let client else { return nil }
+        return client.coverArtCacheKey(id: coverArtID, size: 600)
+    }
+
+    private func load() async {
+        guard let coverArtID, let client, let key = cacheKey else {
+            image = nil
+            imageKey = nil
+            return
+        }
+        loadingKey = key
+        if let immediate = CoverArtCache.shared.memoryImage(forKey: key) {
+            image = immediate
+            imageKey = key
+            return
+        }
+        let loaded = await CoverArtCache.shared.image(for: coverArtID, size: 600, client: client)
+        guard loadingKey == key else { return }
+        image = loaded
+        imageKey = key
     }
 }
 

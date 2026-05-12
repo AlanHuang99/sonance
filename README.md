@@ -62,8 +62,13 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 - Bottom mini-player: cover, title/artist, heart, shuffle, prev/play-pause/next, repeat,
   scrubber + time, volume slider
 - Click the cover thumbnail to **slide up an inline Now Playing panel** (not a separate window or
-  modal sheet — it animates up within the same window over the library content, with a translucent
-  blur background). Press **Esc** or click the chevron at the top-right to slide it back down.
+  modal sheet — it animates up within the same window over the library content). The backdrop is
+  the current cover art, scaled up and blurred behind a translucent material, so the panel always
+  carries the colour mood of the current track and stays legible regardless of the cover's
+  brightness. The backdrop cross-fades on every track change. The mini-player slides out of the
+  safe area while the Now Playing panel is open (they expose the same transport) and slides back
+  when the panel is dismissed. Press **Esc** or click the chevron at the top-right to slide it
+  back down.
 - Now Playing layout: large cover, transport, scrubber, shuffle/repeat/heart row, plus tabbed
   right pane with **Queue** (drag to reorder, double-click to jump, right-click for Remove) and
   **Lyrics** (synced when available, click any line to seek there).
