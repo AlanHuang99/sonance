@@ -31,7 +31,10 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 
 ### Playback
 
-- AVPlayer-based streaming with auto-advance to the next track
+- `AVQueuePlayer`-based streaming with gapless transitions: when the current track is within
+  10 s of its end, the next `AVPlayerItem` is preloaded and inserted so the system advances
+  with no audible gap. `next()`, queue mutations, shuffle, and repeat-mode changes invalidate
+  the preload so it always reflects the live queue.
 - Queue: Play, Play Next, Add to Queue, Reorder, Remove, Clear, Play From Queue (jump-to)
 - Shuffle (preserves the current track at index 0; Un-shuffle restores original order)
 - Repeat: Off / All / One

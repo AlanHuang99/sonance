@@ -30,13 +30,18 @@ final class Player: ObservableObject {
     /// Snapshot of the queue order before shuffle, used to restore on un-shuffle.
     private var unshuffledQueue: [Song] = []
 
-    private let avPlayer = AVPlayer()
+    private let avPlayer = AVQueuePlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var activeClient: SubsonicClient?
     private var hasScrobbledCurrent: Bool = false
     private var lastSavedSecond: Int = -1
     private var pendingSaveTask: Task<Void, Never>?
+    /// One-deep preload for gapless transitions. When the current track is within 10 s of its end
+    /// and we know what's next, the corresponding `AVPlayerItem` is inserted into the
+    /// `AVQueuePlayer` so playback continues without re-loading at the boundary.
+    private var preloadedNextItem: AVPlayerItem?
+    private var preloadedNextIndex: Int?
     private static let stateKey = "sonance.playerState"
 
     private struct PersistedState: Codable {
@@ -72,6 +77,11 @@ final class Player: ObservableObject {
                    let client = self.activeClient {
                     self.hasScrobbledCurrent = true
                     Task.detached { await Self.scrobble(songID: song.id, submission: true, client: client) }
+                }
+                // Preload the next track when within 10 s of the current track's end so
+                // AVQueuePlayer can advance with no audible gap.
+                if self.duration > 0, self.duration - self.currentTime <= 10 {
+                    self.preloadNextIfNeeded()
                 }
                 // Persist playhead state every 3 seconds; queue mutations save immediately.
                 let sec = Int(self.currentTime)
@@ -169,6 +179,7 @@ final class Player: ObservableObject {
             return
         }
         PlaybackQueueLogic.playNext(songs, queue: &queue, queueIndex: queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
+        clearPreload()
         saveState()
     }
 
@@ -179,6 +190,7 @@ final class Player: ObservableObject {
             return
         }
         PlaybackQueueLogic.append(songs, queue: &queue, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
+        clearPreload()
         saveState()
     }
 
@@ -191,6 +203,7 @@ final class Player: ObservableObject {
     func removeFromQueue(at index: Int) {
         guard index >= 0, index < queue.count else { return }
         let result = PlaybackQueueLogic.remove(at: index, queue: &queue, queueIndex: &queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
+        clearPreload()
         switch result {
         case .unchanged:
             break
@@ -205,6 +218,7 @@ final class Player: ObservableObject {
     func moveQueueItem(from source: Int, to destination: Int) {
         guard source >= 0, source < queue.count, destination >= 0, destination <= queue.count, source != destination else { return }
         PlaybackQueueLogic.move(from: source, to: destination, queue: &queue, queueIndex: &queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
+        clearPreload()
         saveState()
     }
 
@@ -254,7 +268,10 @@ final class Player: ObservableObject {
 
     func stop() {
         avPlayer.pause()
-        avPlayer.replaceCurrentItem(with: nil)
+        clearPreload()
+        avPlayer.removeAllItems()
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
         currentSong = nil
         isPlaying = false
         currentTime = 0
@@ -271,11 +288,13 @@ final class Player: ObservableObject {
         case .all: repeatMode = .one
         case .one: repeatMode = .off
         }
+        clearPreload()
         saveState()
     }
 
     func toggleShuffle() {
         PlaybackQueueLogic.toggleShuffle(queue: &queue, queueIndex: &queueIndex, isShuffled: &isShuffled, unshuffledQueue: &unshuffledQueue, currentSong: currentSong)
+        clearPreload()
         saveState()
     }
 
@@ -291,15 +310,10 @@ final class Player: ObservableObject {
         hasScrobbledCurrent = false
         guard let url = client.streamURL(id: song.id) else { return }
         let item = AVPlayerItem(url: url)
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handleTrackEnd() }
-        }
-        avPlayer.replaceCurrentItem(with: item)
+        clearPreload()
+        avPlayer.removeAllItems()
+        installEndObserver(for: item)
+        avPlayer.insert(item, after: nil)
         avPlayer.volume = volume
         if let resumeTime, resumeTime > 0 {
             currentTime = resumeTime
@@ -320,22 +334,71 @@ final class Player: ObservableObject {
         Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
     }
 
+    private func installEndObserver(for item: AVPlayerItem) {
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleTrackEnd() }
+        }
+    }
+
+    private func preloadNextIfNeeded() {
+        guard repeatMode != .one else { return }
+        guard let client = activeClient else { return }
+        guard let nextIdx = PlaybackQueueLogic.nextIndex(queue: queue, queueIndex: queueIndex, repeatMode: repeatMode) else { return }
+        if preloadedNextIndex == nextIdx, preloadedNextItem != nil { return }
+        clearPreload()
+        let song = queue[nextIdx]
+        guard let url = client.streamURL(id: song.id) else { return }
+        let item = AVPlayerItem(url: url)
+        guard avPlayer.canInsert(item, after: avPlayer.currentItem) else { return }
+        avPlayer.insert(item, after: avPlayer.currentItem)
+        preloadedNextItem = item
+        preloadedNextIndex = nextIdx
+    }
+
+    private func clearPreload() {
+        if let item = preloadedNextItem {
+            avPlayer.remove(item)
+        }
+        preloadedNextItem = nil
+        preloadedNextIndex = nil
+    }
+
     private func handleTrackEnd() {
         switch repeatMode {
         case .one:
-            avPlayer.seek(to: .zero)
-            avPlayer.play()
-            isPlaying = true
-            hasScrobbledCurrent = false
-        case .all:
-            if queueIndex + 1 < queue.count {
-                queueIndex += 1
-            } else {
-                queueIndex = 0
-            }
+            // AVQueuePlayer pops the played-to-end item from its queue, so a plain
+            // `seek(to: .zero)` would no-op against a nil currentItem. Re-load the same
+            // queueIndex to start a fresh playback.
             playCurrent()
-        case .off:
-            advanceOrStop()
+        case .all, .off:
+            // Gapless path: AVQueuePlayer has already advanced to the preloaded item if we
+            // preloaded it. Roll our model forward to match. (Queue mutations clear the
+            // preload, so reaching this branch means the preloaded next is still authoritative.)
+            if let nextIdx = preloadedNextIndex, let preloaded = preloadedNextItem,
+               nextIdx < queue.count {
+                queueIndex = nextIdx
+                let song = queue[queueIndex]
+                currentSong = song
+                hasScrobbledCurrent = false
+                preloadedNextItem = nil
+                preloadedNextIndex = nil
+                installEndObserver(for: preloaded)
+                duration = TimeInterval(song.duration ?? 0)
+                currentTime = 0
+                isPlaying = true
+                syncNowPlaying()
+                if let client = activeClient {
+                    Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
+                }
+                saveState()
+            } else {
+                advanceOrStop()
+            }
         }
     }
 
