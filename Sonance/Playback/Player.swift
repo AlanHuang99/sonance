@@ -205,7 +205,16 @@ final class Player: ObservableObject {
         }
         let i = max(0, min(index, queue.count))
         queue.insert(contentsOf: songs, at: i)
-        if !isShuffled { unshuffledQueue = queue }
+        if isShuffled {
+            // Append the inserted tracks to the pre-shuffle snapshot too so toggling shuffle
+            // off later doesn't restore from a stale snapshot that drops them. The shuffled
+            // queue has a precise insertion index, but the unshuffled order has no canonical
+            // home for tracks added after shuffling started — appending at the end is the
+            // conservative choice.
+            unshuffledQueue.append(contentsOf: songs)
+        } else {
+            unshuffledQueue = queue
+        }
         if i <= queueIndex { queueIndex += songs.count }
         clearPreload()
         saveState()

@@ -51,6 +51,28 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    /// Regression test for the M10 + shuffle interaction Codex flagged: inserting tracks
+    /// while shuffled must also update the unshuffled snapshot, or toggling shuffle off
+    /// later silently drops the inserted tracks.
+    func testInsertWhileShuffledKeepsTracksAfterUnshuffle() async {
+        let player = await MainActor.run { Player() }
+        let client = stubClient()
+        let initial = makeSongs(prefix: "s", count: 4)
+
+        await MainActor.run {
+            player.play(initial, startAt: 0, using: client)
+            player.toggleShuffle()
+            XCTAssertTrue(player.isShuffled)
+            let preInsertCount = player.queue.count
+            player.insert([makeSong(id: "dropped")], at: preInsertCount, using: client)
+            XCTAssertEqual(player.queue.count, preInsertCount + 1)
+            player.toggleShuffle()
+            XCTAssertFalse(player.isShuffled)
+            XCTAssertTrue(player.queue.contains { $0.id == "dropped" },
+                          "insert while shuffled must survive a later un-shuffle")
+        }
+    }
+
     // MARK: - M1 ↔ M2 — Stable URLs survive across nominally identical calls
 
     func testStableMediaURLsAcrossManyCalls() {

@@ -7,7 +7,8 @@ import os
 ///
 /// - Tier 1: `NSCache<NSString, NSImage>` of decoded images, `totalCostLimit` 64 MB.
 /// - Tier 2: JPEG/PNG bytes on disk under `~/Library/Caches/com.alanhuang.Sonance/covers/`,
-///   capped at 200 MB with LRU eviction on first miss after launch.
+///   capped at 200 MB with LRU eviction. The disk size is tracked across the session so the
+///   cap is enforced continuously, not only on first miss after launch.
 ///
 /// Keyed on `(accountID, coverArtID, size)` so rotating Subsonic auth params do not defeat reuse,
 /// and so different sizes of the same cover live independently.
@@ -24,7 +25,13 @@ actor CoverArtCache {
     }()
     private let diskDir: URL
     private var inFlight: [String: Task<NSImage?, Never>] = [:]
-    private var didPruneDisk = false
+    /// `false` until the first `fetch` triggers `initialDiskScan` to populate
+    /// `currentDiskBytes` from the existing on-disk files. Distinct from the old
+    /// `didPruneDisk`, which permanently disabled pruning after the first run.
+    private var didInitialScan = false
+    /// Running estimate of total disk-cached bytes. Maintained by add (`writeToDisk`),
+    /// remove (`prune`), and the initial scan. Used to short-circuit `prune` when under cap.
+    private var currentDiskBytes: Int = 0
     private let logger = Logger(subsystem: "com.alanhuang.Sonance", category: "CoverArtCache")
 
     private(set) var memoryHits: Int = 0
@@ -67,7 +74,7 @@ actor CoverArtCache {
     }
 
     private func fetch(id: String, size: Int, key: String, client: SubsonicClient) async -> NSImage? {
-        await pruneDiskIfNeeded()
+        initialDiskScanIfNeeded()
 
         let diskURL = diskPath(for: key)
         if let data = try? Data(contentsOf: diskURL), let image = NSImage(data: data) {
@@ -119,7 +126,14 @@ actor CoverArtCache {
 
     private func writeToDisk(_ data: Data, at url: URL) {
         do {
+            // Account for the previous file at this URL (if any) so the byte counter stays
+            // accurate across re-fetches of the same key.
+            let previousSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             try data.write(to: url, options: .atomic)
+            currentDiskBytes += data.count - previousSize
+            if currentDiskBytes > Self.diskByteLimit {
+                prune()
+            }
         } catch {
             logger.debug("disk write failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -129,33 +143,52 @@ actor CoverArtCache {
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
     }
 
-    private func pruneDiskIfNeeded() async {
-        guard !didPruneDisk else { return }
-        didPruneDisk = true
+    /// One-time directory walk to seed `currentDiskBytes` from existing files on disk. Runs on
+    /// the first `fetch` after launch and prunes once if the survivors are already over cap.
+    private func initialDiskScanIfNeeded() {
+        guard !didInitialScan else { return }
+        didInitialScan = true
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(
+            at: diskDir,
+            includingPropertiesForKeys: [.fileSizeKey]
+        ) else { return }
+        var total = 0
+        for u in urls {
+            total += (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        }
+        currentDiskBytes = total
+        if currentDiskBytes > Self.diskByteLimit {
+            prune()
+        }
+    }
+
+    /// LRU-evict the oldest files until `currentDiskBytes <= diskByteLimit`. Called from the
+    /// initial scan and after each disk write that pushes us over.
+    private func prune() {
         let fm = FileManager.default
         guard let urls = try? fm.contentsOfDirectory(
             at: diskDir,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
         ) else { return }
-
         struct Entry { let url: URL; let date: Date; let size: Int }
-        var entries: [Entry] = []
-        var total = 0
-        for u in urls {
+        let entries = urls.map { u -> Entry in
             let vals = try? u.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-            let date = vals?.contentModificationDate ?? .distantPast
-            let size = vals?.fileSize ?? 0
-            entries.append(Entry(url: u, date: date, size: size))
-            total += size
-        }
-        guard total > Self.diskByteLimit else { return }
-        entries.sort { $0.date < $1.date }
+            return Entry(
+                url: u,
+                date: vals?.contentModificationDate ?? .distantPast,
+                size: vals?.fileSize ?? 0
+            )
+        }.sorted { $0.date < $1.date }
+
+        var bytesRemaining = currentDiskBytes
         for entry in entries {
+            if bytesRemaining <= Self.diskByteLimit { break }
             try? fm.removeItem(at: entry.url)
-            total -= entry.size
-            if total <= Self.diskByteLimit { break }
+            bytesRemaining -= entry.size
         }
-        logger.debug("pruned disk cache to \(total) bytes")
+        currentDiskBytes = max(0, bytesRemaining)
+        logger.debug("pruned disk cache to \(self.currentDiskBytes) bytes")
     }
 
     // MARK: - Diagnostics
@@ -182,7 +215,8 @@ actor CoverArtCache {
         memory.removeAllObjects()
         try? FileManager.default.removeItem(at: diskDir)
         try? FileManager.default.createDirectory(at: diskDir, withIntermediateDirectories: true)
-        didPruneDisk = false
+        didInitialScan = false
+        currentDiskBytes = 0
         resetDiagnostics()
     }
 }

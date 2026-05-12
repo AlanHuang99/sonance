@@ -225,6 +225,9 @@ struct NowPlayingBackdrop: View {
 
     private func load() async {
         guard let coverArtID, let client, let key = cacheKey else {
+            // Reset the loading token too — otherwise a previously-started load can complete
+            // later, pass `guard loadingKey == key`, and repaint the backdrop with stale art.
+            loadingKey = nil
             image = nil
             imageKey = nil
             return

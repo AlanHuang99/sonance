@@ -68,7 +68,12 @@ final class NowPlayingCenter {
 
     private func refreshArtwork(for song: Song, client: SubsonicClient?) {
         guard let coverArtID = song.coverArt, let client else {
-            // Track without artwork — drop any stale artwork from prior song.
+            // Track without artwork. Cancel any prior in-flight load so its delayed completion
+            // doesn't write a stale bitmap into MPNowPlayingInfoCenter, then drop the
+            // previously-published artwork from Control Center.
+            artworkTask?.cancel()
+            artworkTask = nil
+            artworkLoadingKey = nil
             if publishedArtworkKey != nil {
                 publishedArtworkKey = nil
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
