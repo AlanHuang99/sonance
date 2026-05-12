@@ -148,7 +148,7 @@ final class IntegrationTests: XCTestCase {
         StubURLProtocol.responder = { _ in Self.subsonicOKResponse() }
         let client = stubClient()
 
-        // 250 existing + 250 new → 5 chunked requests at the default 100-per-chunk size
+        // 250 existing + 250 new → 6 chunked requests at the default 100-per-chunk size
         // (3 removal chunks: 100 + 100 + 50; 3 addition chunks: 100 + 100 + 50).
         let newIDs = (0..<250).map { "song-\($0)" }
         try await client.playlistReplaceContents(
@@ -156,11 +156,15 @@ final class IntegrationTests: XCTestCase {
             currentCount: 250,
             songIDs: newIDs
         )
-        XCTAssertEqual(StubURLProtocol.callCount, 6, "expected 3 remove + 3 add chunks for 250+250 with chunk size 100")
+        // Filter to `updatePlaylist` so background scrobbles or other detached tasks left over
+        // from earlier tests don't affect the count. (Player.play in the M3↔M10 tests fires a
+        // Task.detached scrobble that uses the same stubbed session.)
+        let updateCalls = Self.updatePlaylistCalls()
+        XCTAssertEqual(updateCalls.count, 6, "expected 3 remove + 3 add chunks for 250+250 with chunk size 100")
 
         // Each request URL should be well under 8 KB even before any future growth in
         // auth / param overhead.
-        for url in StubURLProtocol.capturedURLs {
+        for url in updateCalls {
             XCTAssertLessThan(url.absoluteString.count, 8192, "URL exceeded safe length: \(url.absoluteString.count) bytes")
         }
     }
@@ -172,7 +176,11 @@ final class IntegrationTests: XCTestCase {
 
         try await client.playlistReplaceContents(playlistID: "p1", currentCount: 0, songIDs: ["a", "b"])
         // currentCount 0 → no removal request; one addition request.
-        XCTAssertEqual(StubURLProtocol.callCount, 1)
+        XCTAssertEqual(Self.updatePlaylistCalls().count, 1)
+    }
+
+    private static func updatePlaylistCalls() -> [URL] {
+        StubURLProtocol.capturedURLs.filter { $0.path.hasSuffix("/rest/updatePlaylist") }
     }
 
     private static func subsonicOKResponse() -> Data {
