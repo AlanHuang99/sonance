@@ -8,9 +8,12 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 ## What works
 
 - Sign-in to a Navidrome / Subsonic-API server (salted-MD5 token auth)
-- **Albums** — grid view backed by `getAlbumList2`. Sort menu: A–Z / Newest / Recently Played /
-  Most Played / Random. Heart overlay shows favorited albums. Right-click for Play / Play Next /
-  Add to Queue / Toggle Favorite.
+- **Albums** — grid view backed by `getAlbumList2`. **Paginated** at 100 per request; an end-of-grid
+  sentinel triggers the next page once it scrolls into view, with a small spinner at the bottom
+  during load. Sort menu (A–Z / Newest / Recently Played / Most Played / Random) is inline at the
+  top of the grid; changing sort resets to page 0 and ignores any in-flight stale loads. Heart
+  overlay shows favorited albums. Right-click for Play / Play Next / Add to Queue / Toggle
+  Favorite.
 - **Artists** — alphabetical list; click to see their albums
 - **Songs** — random sample from `getRandomSongs` (Shuffle to refresh)
 - **Playlists** — read view of all server playlists, with **smart-playlist (NSP) detection**:

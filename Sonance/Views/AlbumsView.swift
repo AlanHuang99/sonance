@@ -16,64 +16,156 @@ enum AlbumSort: String, CaseIterable, Identifiable {
 
 struct AlbumsView: View {
     @EnvironmentObject var auth: AuthStore
-    @EnvironmentObject var library: LibraryStore
     @State private var albums: [Album] = []
+    @State private var seenIDs: Set<String> = []
     @State private var loadError: String?
-    @State private var isLoading = false
+    @State private var isLoadingInitial = false
+    @State private var isLoadingMore = false
+    @State private var hasMore: Bool = true
     @State private var sort: AlbumSort = .alphabeticalByName
+    /// Bumped on every sort change so a stale in-flight load can detect that it shouldn't
+    /// apply its results.
+    @State private var loadGeneration: Int = 0
+
+    private static let pageSize = 100
 
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
 
     var body: some View {
         ScrollView {
-            if isLoading && albums.isEmpty {
+            if isLoadingInitial && albums.isEmpty {
                 ProgressView().padding(40)
-            } else if let err = loadError {
+            } else if let err = loadError, albums.isEmpty {
                 Text(err).foregroundStyle(.red).padding(40)
             } else {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(albums) { album in
-                        AlbumGridItem(album: album)
+                VStack(alignment: .leading, spacing: 12) {
+                    sortMenu
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(albums) { album in
+                            AlbumGridItem(album: album)
+                        }
+                        if hasMore && !albums.isEmpty {
+                            loadMoreSentinel
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
-                .padding(20)
             }
         }
         .navigationTitle("Albums")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    Task { await load(refresh: true) }
+                    Task { await reload(refresh: true) }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .disabled(isLoading)
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Picker("Sort", selection: $sort) {
-                    ForEach(AlbumSort.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: sort) { Task { await load() } }
+                .disabled(isLoadingInitial)
             }
         }
         .navigationDestination(for: Album.self) { album in
             AlbumDetailView(album: album)
         }
-        .task { await load() }
+        .task { await reload() }
+        .onChange(of: sort) { _, _ in Task { await reload() } }
     }
 
-    private func load(refresh: Bool = false) async {
+    private var sortMenu: some View {
+        Menu {
+            ForEach(AlbumSort.allCases) { option in
+                Button {
+                    sort = option
+                } label: {
+                    if sort == option {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("Sort: \(sort.label)")
+                    .font(.headline)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var loadMoreSentinel: some View {
+        // Spanning the grid width keeps the spinner centered.
+        HStack {
+            Spacer()
+            ProgressView()
+                .scaleEffect(0.7)
+                .opacity(isLoadingMore ? 1 : 0)
+            Spacer()
+        }
+        .frame(height: 44)
+        .gridCellColumns(columns.count)
+        .onAppear {
+            Task { await loadMore() }
+        }
+    }
+
+    /// Reset to page 0 and reload. Used by initial appearance, sort change, and the Refresh
+    /// button. Bumps `loadGeneration` so any in-flight pagination request from the prior sort
+    /// abandons its results.
+    private func reload(refresh: Bool = false) async {
         guard let client = auth.client else { return }
-        isLoading = true
-        defer { isLoading = false }
+        loadGeneration += 1
+        let generation = loadGeneration
+        isLoadingInitial = true
+        defer { isLoadingInitial = false }
         do {
-            albums = try await library.albumList(sort: sort, size: 200, client: client, refresh: refresh)
+            let page = try await client.albumList(type: sort.rawValue, size: Self.pageSize, offset: 0)
+            guard generation == loadGeneration else { return }
+            albums = page
+            seenIDs = Set(page.map(\.id))
+            hasMore = page.count == Self.pageSize
             loadError = nil
         } catch let error as SubsonicError {
+            guard generation == loadGeneration else { return }
             loadError = error.message
         } catch {
+            guard generation == loadGeneration else { return }
             loadError = error.localizedDescription
+        }
+    }
+
+    private func loadMore() async {
+        guard let client = auth.client else { return }
+        guard hasMore, !isLoadingMore, !isLoadingInitial else { return }
+        let generation = loadGeneration
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let page = try await client.albumList(
+                type: sort.rawValue,
+                size: Self.pageSize,
+                offset: albums.count
+            )
+            guard generation == loadGeneration else { return }
+            // Skip anything we have already (covers `random` sort, which the server may overlap).
+            let fresh = page.filter { !seenIDs.contains($0.id) }
+            for album in fresh { seenIDs.insert(album.id) }
+            albums.append(contentsOf: fresh)
+            // If the server returned fewer than a full page we have reached the tail.
+            hasMore = page.count == Self.pageSize && !fresh.isEmpty
+        } catch {
+            // A pagination error doesn't clear the existing grid; surface in the existing
+            // load-error slot only if we have no other albums to show.
+            if albums.isEmpty {
+                loadError = (error as? SubsonicError)?.message ?? error.localizedDescription
+            }
         }
     }
 }
