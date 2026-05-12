@@ -22,9 +22,13 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
   Favorite.
 - **Artists** — alphabetical list; click to see their albums
 - **Songs** — random sample from `getRandomSongs` (Shuffle to refresh)
-- **Playlists** — read view of all server playlists, with **smart-playlist (NSP) detection**:
-  Navidrome marks .nsp-derived playlists with `readonly: true` and `comment: "Auto-imported from
-  '*.nsp'"`; both surface with a sparkles icon and a yellow "Smart" badge.
+- **Playlists** — list/detail view with **smart-playlist (NSP) detection**: Navidrome marks
+  .nsp-derived playlists with `readonly: true` and `comment: "Auto-imported from '*.nsp'"`;
+  both surface with a sparkles icon and a yellow "Smart" badge. Non-smart playlists are
+  editable: a "+" toolbar button creates a new (empty) playlist; right-clicking a row offers
+  Rename / Delete; the detail page lets you drag rows to reorder, remove tracks from the
+  context menu, and add tracks via a search-based picker sheet. Smart playlists remain
+  read-only.
 - **Favorites** — sidebar section with Songs / Albums / Artists tabs, backed by `getStarred2`.
   Heart buttons across the app toggle star/unstar via the Subsonic API; state stays in sync via
   a global `FavoritesStore`. Toggling a heart **does not** trigger a full `getStarred2` re-fetch;

@@ -107,6 +107,55 @@ final class SubsonicClient: @unchecked Sendable {
         return detail
     }
 
+    /// Creates an empty playlist. Returns the server-assigned playlist if the response carried
+    /// one; some servers reply with just status=ok, in which case the caller should refresh.
+    @discardableResult
+    func createPlaylist(name: String) async throws -> PlaylistDetail? {
+        let resp: PlaylistDetailResponse = try await get("createPlaylist", params: ["name": name])
+        return resp.playlist
+    }
+
+    func renamePlaylist(id: String, to newName: String) async throws {
+        let _: PingResponse = try await get("updatePlaylist", params: ["playlistId": id, "name": newName])
+    }
+
+    func deletePlaylist(id: String) async throws {
+        let _: PingResponse = try await get("deletePlaylist", params: ["id": id])
+    }
+
+    /// Append a single song to a playlist. Subsonic's `updatePlaylist` supports `songIdToAdd`
+    /// being passed multiple times in one request, but our scalar `params` dictionary cannot
+    /// carry duplicate keys; callers wrap this in a loop when adding multiple tracks.
+    func playlistAddSong(playlistID: String, songID: String) async throws {
+        let _: PingResponse = try await get("updatePlaylist", params: [
+            "playlistId": playlistID,
+            "songIdToAdd": songID,
+        ])
+    }
+
+    /// Remove the track at the given index (0-based) from the playlist.
+    func playlistRemoveSong(playlistID: String, index: Int) async throws {
+        let _: PingResponse = try await get("updatePlaylist", params: [
+            "playlistId": playlistID,
+            "songIndexToRemove": String(index),
+        ])
+    }
+
+    /// Replace a playlist's contents in a single round trip by removing every existing index
+    /// and re-adding the given songs in the new order. Subsonic permits repeated query
+    /// parameters (`songIndexToRemove`, `songIdToAdd`) on `updatePlaylist`; the server applies
+    /// removals before additions.
+    func playlistReplaceContents(playlistID: String, currentCount: Int, songIDs: [String]) async throws {
+        var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
+        for i in 0..<currentCount {
+            query.append(URLQueryItem(name: "songIndexToRemove", value: String(i)))
+        }
+        for id in songIDs {
+            query.append(URLQueryItem(name: "songIdToAdd", value: id))
+        }
+        let _: PingResponse = try await getQuery("updatePlaylist", items: query)
+    }
+
     func streamURL(id: String) -> URL? {
         try? buildURL(endpoint: "stream", params: ["id": id], stableAuth: true)
     }
@@ -142,6 +191,50 @@ final class SubsonicClient: @unchecked Sendable {
             throw SubsonicError(code: -1, message: "Empty response from server")
         }
         return body
+    }
+
+    /// Variant of `get` that carries repeated query parameters (e.g. multiple
+    /// `songIdToAdd` values for `updatePlaylist`). The `[String: String]` form can't express
+    /// duplicates.
+    private func getQuery<T: Decodable>(_ endpoint: String, items: [URLQueryItem]) async throws -> T {
+        NetworkDiagnostics.record(endpoint)
+        let url = try buildQueryURL(endpoint: endpoint, items: items)
+        let (data, _) = try await urlSession.data(from: url)
+        let envelope = try JSONDecoder().decode(SubsonicEnvelope<T>.self, from: data)
+        let resp = envelope.subsonicResponse
+        if resp.status == "failed", let err = resp.error {
+            throw SubsonicError(code: err.code, message: err.message)
+        }
+        guard let body = resp.body else {
+            throw SubsonicError(code: -1, message: "Empty response from server")
+        }
+        return body
+    }
+
+    private func buildQueryURL(endpoint: String, items: [URLQueryItem]) throws -> URL {
+        let trimmed = credentials.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed) else {
+            throw SubsonicError(code: -1, message: "Invalid server URL")
+        }
+        var path = components.path
+        if !path.hasSuffix("/") { path += "/" }
+        components.path = path + "rest/" + endpoint
+        let salt = Self.randomSalt()
+        let token = Self.md5(credentials.password + salt)
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "u", value: credentials.username),
+            URLQueryItem(name: "t", value: token),
+            URLQueryItem(name: "s", value: salt),
+            URLQueryItem(name: "v", value: apiVersion),
+            URLQueryItem(name: "c", value: clientName),
+            URLQueryItem(name: "f", value: "json"),
+        ]
+        query.append(contentsOf: items)
+        components.queryItems = query
+        guard let url = components.url else {
+            throw SubsonicError(code: -1, message: "Could not construct request URL")
+        }
+        return url
     }
 
     private func buildURL(endpoint: String, params: [String: String], stableAuth: Bool = false) throws -> URL {

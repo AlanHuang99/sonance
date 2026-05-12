@@ -8,6 +8,13 @@ struct PlaylistsView: View {
     @State private var loadError: String?
     @State private var isLoading = false
 
+    // Mutation state
+    @State private var newPlaylistName: String = ""
+    @State private var showingNewPlaylistPrompt = false
+    @State private var renameTargetID: String?
+    @State private var renameDraft: String = ""
+    @State private var actionError: String?
+
     var body: some View {
         HSplitView {
             playlistList
@@ -18,7 +25,13 @@ struct PlaylistsView: View {
         .navigationTitle("Playlists")
         .task { await load() }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    newPlaylistName = ""
+                    showingNewPlaylistPrompt = true
+                } label: {
+                    Label("New Playlist", systemImage: "plus")
+                }
                 Button {
                     Task { await load(refresh: true) }
                 } label: {
@@ -26,6 +39,37 @@ struct PlaylistsView: View {
                 }
                 .disabled(isLoading)
             }
+        }
+        .alert("New Playlist", isPresented: $showingNewPlaylistPrompt) {
+            TextField("Name", text: $newPlaylistName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let name = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                Task { await createPlaylist(name: name) }
+            }
+        }
+        .alert("Rename Playlist", isPresented: Binding(
+            get: { renameTargetID != nil },
+            set: { if !$0 { renameTargetID = nil } }
+        )) {
+            TextField("Name", text: $renameDraft)
+            Button("Cancel", role: .cancel) { renameTargetID = nil }
+            Button("Save") {
+                guard let id = renameTargetID else { return }
+                let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                renameTargetID = nil
+                guard !name.isEmpty else { return }
+                Task { await renamePlaylist(id: id, name: name) }
+            }
+        }
+        .alert("Action Failed", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
         }
     }
 
@@ -38,7 +82,19 @@ struct PlaylistsView: View {
             } else {
                 List(selection: $selectedID) {
                     ForEach(playlists) { p in
-                        PlaylistRow(playlist: p).tag(p.id as String?)
+                        PlaylistRow(playlist: p)
+                            .tag(p.id as String?)
+                            .contextMenu {
+                                if !p.isSmart {
+                                    Button("Rename") { beginRename(p) }
+                                    Button("Delete", role: .destructive) {
+                                        Task { await deletePlaylist(id: p.id) }
+                                    }
+                                } else {
+                                    Text("Smart playlists are read-only")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                     }
                 }
             }
@@ -77,6 +133,45 @@ struct PlaylistsView: View {
             loadError = error.localizedDescription
         }
     }
+
+    private func createPlaylist(name: String) async {
+        guard let client = auth.client else { return }
+        do {
+            _ = try await client.createPlaylist(name: name)
+            await load(refresh: true)
+            if let newest = playlists.first(where: { $0.name == name }) {
+                selectedID = newest.id
+            }
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
+        }
+    }
+
+    private func beginRename(_ playlist: Playlist) {
+        renameDraft = playlist.name
+        renameTargetID = playlist.id
+    }
+
+    private func renamePlaylist(id: String, name: String) async {
+        guard let client = auth.client else { return }
+        do {
+            try await client.renamePlaylist(id: id, to: name)
+            await load(refresh: true)
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
+        }
+    }
+
+    private func deletePlaylist(id: String) async {
+        guard let client = auth.client else { return }
+        do {
+            try await client.deletePlaylist(id: id)
+            if selectedID == id { selectedID = nil }
+            await load(refresh: true)
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
+        }
+    }
 }
 
 struct PlaylistRow: View {
@@ -113,6 +208,8 @@ struct PlaylistDetailView: View {
     @State private var detail: PlaylistDetail?
     @State private var loadError: String?
     @State private var isLoading = false
+    @State private var actionError: String?
+    @State private var showingAddTracks = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -130,6 +227,23 @@ struct PlaylistDetailView: View {
                 }
                 .disabled(isLoading)
             }
+        }
+        .sheet(isPresented: $showingAddTracks) {
+            AddTracksToPlaylistSheet(
+                playlistID: summary.id,
+                existingIDs: Set((detail?.entry ?? []).map(\.id)),
+                onAdded: { addedIDs in
+                    Task { await load(refresh: true) }
+                }
+            )
+        }
+        .alert("Action Failed", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
         }
     }
 
@@ -153,13 +267,22 @@ struct PlaylistDetailView: View {
                 if let comment = summary.comment, !comment.isEmpty {
                     Text(comment).font(.caption).foregroundStyle(.tertiary)
                 }
-                Button {
-                    playAll()
-                } label: {
-                    Label("Play", systemImage: "play.fill").frame(width: 80)
+                HStack(spacing: 10) {
+                    Button {
+                        playAll()
+                    } label: {
+                        Label("Play", systemImage: "play.fill").frame(width: 80)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled((detail?.entry?.isEmpty ?? true))
+                    if !summary.isSmart {
+                        Button {
+                            showingAddTracks = true
+                        } label: {
+                            Label("Add Tracks", systemImage: "plus")
+                        }
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled((detail?.entry?.isEmpty ?? true))
                 .padding(.top, 4)
             }
             Spacer()
@@ -174,9 +297,30 @@ struct PlaylistDetailView: View {
         } else if let err = loadError {
             Text(err).foregroundStyle(.red).padding(40)
         } else if let songs = detail?.entry, !songs.isEmpty {
-            TrackListView(songs: songs, onPlay: { idx in playSong(at: idx) })
+            if summary.isSmart {
+                TrackListView(songs: songs, onPlay: { idx in playSong(at: idx) })
+            } else {
+                EditablePlaylistTrackList(
+                    playlistID: summary.id,
+                    songs: songs,
+                    onPlay: { idx in playSong(at: idx) },
+                    onMoved: { newOrder in
+                        Task { await reorder(to: newOrder) }
+                    },
+                    onRemove: { index in
+                        Task { await removeTrack(at: index) }
+                    }
+                )
+            }
         } else {
-            Text("Empty playlist").foregroundStyle(.secondary).padding(40).frame(maxWidth: .infinity)
+            VStack(spacing: 10) {
+                Text("Empty playlist").foregroundStyle(.secondary)
+                if !summary.isSmart {
+                    Button("Add Tracks") { showingAddTracks = true }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .padding(40).frame(maxWidth: .infinity)
         }
     }
 
@@ -206,5 +350,221 @@ struct PlaylistDetailView: View {
     private func playSong(at index: Int) {
         guard let songs = detail?.entry, let client = auth.client else { return }
         player.play(songs, startAt: index, using: client)
+    }
+
+    private func reorder(to newSongs: [Song]) async {
+        guard let client = auth.client else { return }
+        let originalSongs = detail?.entry ?? []
+        let originalCount = originalSongs.count
+        // Optimistic local update so the user sees the new order immediately.
+        if let d = detail {
+            detail = PlaylistDetail(
+                id: d.id, name: d.name, comment: d.comment, songCount: d.songCount,
+                duration: d.duration, owner: d.owner, coverArt: d.coverArt,
+                readonly: d.readonly, entry: newSongs
+            )
+        }
+        do {
+            try await client.playlistReplaceContents(
+                playlistID: summary.id,
+                currentCount: originalCount,
+                songIDs: newSongs.map(\.id)
+            )
+            await load(refresh: true)
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
+            // Rollback to the server's truth.
+            await load(refresh: true)
+        }
+    }
+
+    private func removeTrack(at index: Int) async {
+        guard let client = auth.client else { return }
+        do {
+            try await client.playlistRemoveSong(playlistID: summary.id, index: index)
+            await load(refresh: true)
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
+        }
+    }
+}
+
+/// Reorderable + removable track list for non-smart playlists.
+struct EditablePlaylistTrackList: View {
+    let playlistID: String
+    let songs: [Song]
+    let onPlay: (Int) -> Void
+    let onMoved: ([Song]) -> Void
+    let onRemove: (Int) -> Void
+
+    @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var player: Player
+    @EnvironmentObject var favorites: FavoritesStore
+    @State private var selectedSongID: Song.ID?
+
+    var body: some View {
+        List(selection: $selectedSongID) {
+            ForEach(Array(songs.enumerated()), id: \.element.id) { idx, song in
+                TrackRow(
+                    index: song.track ?? (idx + 1),
+                    song: song,
+                    isCurrent: player.currentSong?.id == song.id,
+                    isFavorite: favorites.isSongFavorite(song.id),
+                    onToggleFavorite: { toggleFavorite(song) }
+                )
+                .tag(song.id)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { onPlay(idx) }
+                .contextMenu {
+                    Button("Play") { onPlay(idx) }
+                    Button("Remove from Playlist", role: .destructive) { onRemove(idx) }
+                    Divider()
+                    Button(favorites.isSongFavorite(song.id) ? "Remove Favorite" : "Add Favorite") {
+                        toggleFavorite(song)
+                    }
+                }
+            }
+            .onMove { indexSet, destination in
+                var newOrder = songs
+                newOrder.move(fromOffsets: indexSet, toOffset: destination)
+                onMoved(newOrder)
+            }
+            .onDelete { indexSet in
+                guard let i = indexSet.first else { return }
+                onRemove(i)
+            }
+        }
+        .listStyle(.inset)
+        .onKeyPress(.return) {
+            guard let id = selectedSongID,
+                  let idx = songs.firstIndex(where: { $0.id == id }) else { return .ignored }
+            onPlay(idx)
+            return .handled
+        }
+    }
+
+    private func toggleFavorite(_ song: Song) {
+        guard let client = auth.client else { return }
+        Task { await favorites.toggleSong(song.id, client: client) }
+    }
+}
+
+/// Search-based picker that adds chosen tracks to a playlist. Selected tracks are added in
+/// order (one network call per song; Subsonic does not support batched additions with our
+/// scalar query parameters).
+struct AddTracksToPlaylistSheet: View {
+    let playlistID: String
+    let existingIDs: Set<String>
+    let onAdded: ([String]) -> Void
+
+    @EnvironmentObject var auth: AuthStore
+    @EnvironmentObject var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var query: String = ""
+    @State private var results: [Song] = []
+    @State private var selected: Set<String> = []
+    @State private var debounceTask: Task<Void, Never>?
+    @State private var isAdding = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search songs to add", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: query) { _, _ in scheduleSearch() }
+            }
+            .padding(16)
+            Divider()
+            if results.isEmpty {
+                Text(query.isEmpty ? "Type to search" : "No results")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(selection: $selected) {
+                    ForEach(results) { song in
+                        HStack(spacing: 8) {
+                            let already = existingIDs.contains(song.id)
+                            Image(systemName: already
+                                  ? "checkmark.circle.fill"
+                                  : (selected.contains(song.id) ? "plus.circle.fill" : "plus.circle"))
+                                .foregroundStyle(already ? Color.secondary : Color.accentColor)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(song.title).lineLimit(1)
+                                Text(song.artist ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            Text(song.album ?? "").font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                                .frame(maxWidth: 200, alignment: .trailing)
+                        }
+                        .tag(song.id)
+                    }
+                }
+                .listStyle(.inset)
+            }
+            Divider()
+            HStack {
+                if let error {
+                    Text(error).foregroundStyle(.red).font(.caption).lineLimit(2)
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button(isAdding ? "Adding…" : "Add \(addCount > 0 ? "\(addCount)" : "")") {
+                    Task { await addSelected() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(addCount == 0 || isAdding)
+            }
+            .padding(12)
+        }
+        .frame(minWidth: 520, minHeight: 360)
+    }
+
+    private var addCount: Int {
+        selected.subtracting(existingIDs).count
+    }
+
+    private func scheduleSearch() {
+        debounceTask?.cancel()
+        let q = query
+        debounceTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if Task.isCancelled { return }
+            await runSearch(q)
+        }
+    }
+
+    private func runSearch(_ q: String) async {
+        guard let client = auth.client else { return }
+        let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            results = []
+            return
+        }
+        do {
+            let r = try await library.search(query: trimmed, client: client)
+            results = r.song ?? []
+        } catch {
+            self.error = (error as? SubsonicError)?.message ?? error.localizedDescription
+        }
+    }
+
+    private func addSelected() async {
+        guard let client = auth.client else { return }
+        let toAdd = Array(selected.subtracting(existingIDs))
+        guard !toAdd.isEmpty else { return }
+        isAdding = true
+        defer { isAdding = false }
+        do {
+            for id in toAdd {
+                try await client.playlistAddSong(playlistID: playlistID, songID: id)
+            }
+            onAdded(toAdd)
+            dismiss()
+        } catch {
+            self.error = (error as? SubsonicError)?.message ?? error.localizedDescription
+        }
     }
 }
