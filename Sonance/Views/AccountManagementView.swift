@@ -33,6 +33,8 @@ struct AccountManagementView: View {
                         editor
                     }
                 }
+
+                NetworkDiagnosticsPanel()
             }
             .padding(28)
         }
@@ -307,5 +309,58 @@ struct AccountManagementView: View {
 
     private var isBusy: Bool {
         isTesting || isConnecting
+    }
+}
+
+/// Read-out of per-endpoint Subsonic request counts. Useful for verifying cache hit rates and
+/// pinning down chatty code paths. Counts are process-lifetime — refreshing the snapshot
+/// re-reads `NetworkDiagnostics`; `Reset` zeroes the underlying counters.
+private struct NetworkDiagnosticsPanel: View {
+    @State private var snapshot: [String: Int] = [:]
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Counts are cumulative for the current process. Reset clears them in place.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Refresh") { snapshot = NetworkDiagnostics.snapshot() }
+                    Button("Reset", role: .destructive) {
+                        NetworkDiagnostics.reset()
+                        snapshot = NetworkDiagnostics.snapshot()
+                    }
+                }
+                if snapshot.isEmpty {
+                    Text("No requests recorded yet.")
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 6)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(snapshot.keys.sorted(), id: \.self) { key in
+                            HStack {
+                                Text(key).font(.callout.monospaced())
+                                Spacer()
+                                Text("\(snapshot[key] ?? 0)")
+                                    .font(.callout.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            Label("Network Diagnostics", systemImage: "chart.bar.xaxis")
+                .font(.headline)
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .onAppear { snapshot = NetworkDiagnostics.snapshot() }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded { snapshot = NetworkDiagnostics.snapshot() }
+        }
     }
 }

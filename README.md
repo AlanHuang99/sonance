@@ -1,22 +1,36 @@
 # Sonance
 
-A macOS client for Navidrome and other Subsonic-API servers, written in SwiftUI.
-Requires macOS 14 or later.
+A macOS client for Navidrome and other Subsonic-compatible servers, written in
+SwiftUI. Requires macOS 14 or later.
 
 ## Features
 
 ### Library
 
-- Albums, Artists, Songs, Playlists, Favorites, Search.
+- Sidebar sections: Albums, Artists, Discover, Genres, Playlists, Favorites,
+  Search, Accounts.
 - Albums grid with pagination (100 per page) and a sort menu (A–Z, Newest,
-  Recently Played, Most Played, Random).
-- Album detail groups tracks by disc when an album spans more than one disc and
-  shows the total track count and duration.
+  Recently Played, Most Played, Random). Keyboard-selected tiles auto-scroll
+  to stay visible.
+- Album detail groups tracks by disc on multi-disc releases; the disc header
+  shows the per-disc track count and duration. The album header shows total
+  track count and duration.
+- Artist detail shows the artist image and biography from `getArtistInfo2`
+  (when available), a similar-artists strip, and Play All / Shuffle All over
+  the whole discography.
+- Discover tab: random Songs / Albums / Artists / Playlists, refreshed on
+  demand.
+- Genres tab: grid of genre cards backed by `getGenres`, drilling into
+  `getAlbumList2(type: byGenre)`.
 - Smart playlists (Navidrome `.nsp`) are read-only. Regular playlists support
   create, rename, delete, drag-to-reorder, and add tracks via search.
 - Favorites for songs, albums, and artists.
-- Debounced search across artists, albums, and songs.
+- Debounced search across artists, albums, and songs with an All / Artists /
+  Albums / Songs scope picker.
 - Synced lyrics via OpenSubsonic `getLyricsBySongId`; click a line to seek.
+- Artist and album names are clickable links throughout track lists, the
+  album header, the Now Playing pane, and the queue. A hover underline marks
+  the affordance.
 
 ### Playback
 
@@ -30,8 +44,9 @@ Requires macOS 14 or later.
 ### macOS integration
 
 - `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`: Control Center, the
-  menu-bar Now Playing widget, media keys, AirPods double-tap, and Control
-  Center scrubbing all see and steer playback.
+  menu-bar Now Playing widget, media keys, AirPods double-tap, Control Center
+  scrubbing, and the system repeat/shuffle controls all see and steer
+  playback.
 - Optional menu-bar status item with a mini transport popover.
 - Closing the window does not quit the app.
 
@@ -51,7 +66,8 @@ Requires macOS 14 or later.
 - ⌘P — play / pause
 - ⌘← / ⌘→ — previous / next
 - ⌘F — focus search
-- ⌘1..⌘5 — sidebar sections (Albums, Artists, Songs, Playlists, Favorites)
+- ⌘1..⌘6 — sidebar sections (Albums, Artists, Discover, Genres, Playlists,
+  Favorites)
 - ⌘L — open the current track's album
 - ↑ / ↓ + Return in track lists
 - ← / → / ↑ / ↓ + Return in the albums grid
@@ -61,10 +77,10 @@ Requires macOS 14 or later.
 - Credentials in macOS Keychain (`UserDefaults` in Debug builds).
 - Queue, playhead, shuffle / repeat / volume in `UserDefaults`.
 
-## Not supported
+## Not implemented
 
 - Smart-playlist (`.nsp`) editing — requires editing the `.nsp` file or
-  Navidrome's web UI. The Subsonic API doesn't expose rule editing.
+  Navidrome's web UI. The Subsonic API does not expose rule editing.
 - Sleep timer.
 - AirPlay.
 

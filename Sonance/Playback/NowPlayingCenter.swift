@@ -160,13 +160,54 @@ final class NowPlayingCenter {
             return .success
         }
 
+        center.changeRepeatModeCommand.isEnabled = true
+        center.changeRepeatModeCommand.addTarget { [weak self] event in
+            guard let player = self?.player,
+                  let cmd = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            let desired: RepeatMode
+            switch cmd.repeatType {
+            case .off: desired = .off
+            case .one: desired = .one
+            case .all: desired = .all
+            @unknown default: desired = .off
+            }
+            // `cycleRepeat` would step one slot at a time; jump straight to the requested mode
+            // so the system control's three-state picker reflects accurately on every press.
+            while player.repeatMode != desired { player.cycleRepeat() }
+            self?.syncRepeatShuffle()
+            return .success
+        }
+
+        center.changeShuffleModeCommand.isEnabled = true
+        center.changeShuffleModeCommand.addTarget { [weak self] event in
+            guard let player = self?.player,
+                  let cmd = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
+            let desiredOn = (cmd.shuffleType != .off)
+            if player.isShuffled != desiredOn { player.toggleShuffle() }
+            self?.syncRepeatShuffle()
+            return .success
+        }
+
         // Disable commands we don't support so the UI doesn't show them as available.
         center.skipForwardCommand.isEnabled = false
         center.skipBackwardCommand.isEnabled = false
         center.seekForwardCommand.isEnabled = false
         center.seekBackwardCommand.isEnabled = false
         center.ratingCommand.isEnabled = false
-        center.changeRepeatModeCommand.isEnabled = false
-        center.changeShuffleModeCommand.isEnabled = false
+    }
+
+    /// Publish the player's current repeat/shuffle to MPRemoteCommandCenter so system controls
+    /// reflect their state. Called whenever the user changes either via the in-app UI.
+    func syncRepeatShuffle() {
+        guard let player else { return }
+        let center = MPRemoteCommandCenter.shared()
+        let repeatType: MPRepeatType
+        switch player.repeatMode {
+        case .off: repeatType = .off
+        case .one: repeatType = .one
+        case .all: repeatType = .all
+        }
+        center.changeRepeatModeCommand.currentRepeatType = repeatType
+        center.changeShuffleModeCommand.currentShuffleType = player.isShuffled ? .items : .off
     }
 }

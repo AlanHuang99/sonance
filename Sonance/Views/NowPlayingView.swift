@@ -4,6 +4,7 @@ struct NowPlayingView: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var navigation: NavigationCoordinator
     let onDismiss: () -> Void
     @State private var rightTab: RightTab = .queue
 
@@ -84,9 +85,21 @@ struct NowPlayingView: View {
 
                 VStack(spacing: 4) {
                     Text(song.title).font(.title2).bold().multilineTextAlignment(.center).lineLimit(2)
-                    Text(song.artist ?? "—").font(.title3).foregroundStyle(.secondary).lineLimit(1)
+                    NavigableLabel(
+                        text: song.artist ?? "—",
+                        isEnabled: song.artistId != nil,
+                        font: .title3,
+                        tooltip: song.artistId == nil ? nil : "Go to Artist",
+                        action: { goToArtist(song) }
+                    )
                     if let album = song.album, !album.isEmpty {
-                        Text(album).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                        NavigableLabel(
+                            text: album,
+                            isEnabled: song.albumId != nil,
+                            font: .callout,
+                            tooltip: song.albumId == nil ? nil : "Go to Album",
+                            action: { goToAlbum(song) }
+                        )
                     }
                 }
 
@@ -184,6 +197,18 @@ struct NowPlayingView: View {
         let total = Int(s.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
     }
+
+    private func goToAlbum(_ song: Song) {
+        guard let album = albumStub(from: song) else { return }
+        navigation.requestAlbumNavigation(album)
+        onDismiss()
+    }
+
+    private func goToArtist(_ song: Song) {
+        guard let artistId = song.artistId else { return }
+        navigation.requestArtistNavigation(Artist(id: artistId, name: song.artist ?? "", coverArt: nil, albumCount: nil))
+        onDismiss()
+    }
 }
 
 /// Ambient backdrop: the current cover, scaled up and heavily blurred behind a translucent
@@ -254,6 +279,7 @@ struct QueuePaneView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var navigation: NavigationCoordinator
 
     var body: some View {
         VStack(spacing: 0) {
@@ -277,6 +303,11 @@ struct QueuePaneView: View {
                         .contextMenu {
                             Button("Play") { player.jumpTo(idx) }
                             Button("Remove") { player.removeFromQueue(at: idx) }
+                            Divider()
+                            Button("Go to Album") { goToAlbum(song) }
+                                .disabled(song.albumId == nil)
+                            Button("Go to Artist") { goToArtist(song) }
+                                .disabled(song.artistId == nil)
                             Divider()
                             Button(favorites.isSongFavorite(song.id) ? "Remove Favorite" : "Add Favorite") {
                                 if let c = auth.client {
@@ -303,6 +334,16 @@ struct QueuePaneView: View {
     private func insertDropped(_ songs: [Song], at index: Int) {
         guard let client = auth.client, !songs.isEmpty else { return }
         player.insert(songs, at: index, using: client)
+    }
+
+    private func goToAlbum(_ song: Song) {
+        guard let album = albumStub(from: song) else { return }
+        navigation.requestAlbumNavigation(album)
+    }
+
+    private func goToArtist(_ song: Song) {
+        guard let artistId = song.artistId else { return }
+        navigation.requestArtistNavigation(Artist(id: artistId, name: song.artist ?? "", coverArt: nil, albumCount: nil))
     }
 }
 

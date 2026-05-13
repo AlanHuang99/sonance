@@ -43,12 +43,14 @@ struct SonanceApp: App {
                     .keyboardShortcut("1", modifiers: [.command])
                 Button("Artists") { navigation.switch_(to: .artists) }
                     .keyboardShortcut("2", modifiers: [.command])
-                Button("Songs") { navigation.switch_(to: .songs) }
+                Button("Discover") { navigation.switch_(to: .discover) }
                     .keyboardShortcut("3", modifiers: [.command])
-                Button("Playlists") { navigation.switch_(to: .playlists) }
+                Button("Genres") { navigation.switch_(to: .genres) }
                     .keyboardShortcut("4", modifiers: [.command])
-                Button("Favorites") { navigation.switch_(to: .favorites) }
+                Button("Playlists") { navigation.switch_(to: .playlists) }
                     .keyboardShortcut("5", modifiers: [.command])
+                Button("Favorites") { navigation.switch_(to: .favorites) }
+                    .keyboardShortcut("6", modifiers: [.command])
                 Divider()
                 Button("Go to Current Album") {
                     guard let song = player.currentSong, let id = song.albumId else { return }
