@@ -1,162 +1,72 @@
 # Sonance
 
-A native macOS client for [Navidrome](https://www.navidrome.org/), built in SwiftUI.
+A macOS client for Navidrome and other Subsonic-API servers, written in SwiftUI.
+Requires macOS 14 or later.
 
-Inspired by [Feishin](https://github.com/jeffvli/feishin) (functionality) and motivated by the
-fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on macOS.
+## Features
 
-## What works
+### Library
 
-- Sign-in to a Navidrome / Subsonic-API server (salted-MD5 token auth)
-- Album / song metadata: `Song` now decodes `albumId`, `track`, `discNumber`, `bitRate`,
-  `genre`, and `playCount` from the Subsonic JSON; `Album` and `AlbumDetail` decode `genre`
-  and `playCount`. Track lists show server-reported track numbers when present and fall back
-  to the row index otherwise. Album detail pages group tracks by `discNumber` when an album
-  spans more than one disc, with "Disc N" section headers; the header also reports total
-  album duration ("12 tracks · 47 min").
-- **Albums** — grid view backed by `getAlbumList2`. **Paginated** at 100 per request; an end-of-grid
-  sentinel triggers the next page once it scrolls into view, with a small spinner at the bottom
-  during load. Sort menu (A–Z / Newest / Recently Played / Most Played / Random) is inline at the
-  top of the grid; changing sort resets to page 0 and ignores any in-flight stale loads. Heart
-  overlay shows favorited albums. Right-click for Play / Play Next / Add to Queue / Toggle
-  Favorite.
-- **Artists** — alphabetical list; click to see their albums
-- **Songs** — random sample from `getRandomSongs` (Shuffle to refresh)
-- **Playlists** — list/detail view with **smart-playlist (NSP) detection**: Navidrome marks
-  .nsp-derived playlists with `readonly: true` and `comment: "Auto-imported from '*.nsp'"`;
-  both surface with a sparkles icon and a yellow "Smart" badge. Non-smart playlists are
-  editable: a "+" toolbar button creates a new (empty) playlist; right-clicking a row offers
-  Rename / Delete; the detail page lets you drag rows to reorder, remove tracks from the
-  context menu, and add tracks via a search-based picker sheet. Smart playlists remain
-  read-only.
-- **Favorites** — sidebar section with Songs / Albums / Artists tabs, backed by `getStarred2`.
-  Heart buttons across the app toggle star/unstar via the Subsonic API; state stays in sync via
-  a global `FavoritesStore`. Toggling a heart **does not** trigger a full `getStarred2` re-fetch;
-  the locally-loaded `Starred2Container` is reconciled in place against the store's ID sets.
-  Refresh is still available for manual full reload.
-- **Search** — debounced search3 across artists, albums, and songs
-- Shared in-memory library cache avoids re-fetching album lists, artists, details, playlists,
-  favorites, random songs, and repeated search results during normal navigation. Refresh controls
-  bypass cache intentionally.
-- Cover art is served by a two-tier `CoverArtCache` actor: an in-memory `NSCache` capped at 64 MB
-  by decoded-pixel cost, and a JPEG/PNG on-disk cache under
-  `~/Library/Caches/com.alanhuang.Sonance/covers/` capped at 200 MB with LRU eviction on first
-  miss after launch. Cover-art and stream URLs use a memoized salt+token per `SubsonicClient`,
-  so URLs stay stable across SwiftUI re-renders and `URLCache`/`AVPlayer` can identify them.
+- Albums, Artists, Songs, Playlists, Favorites, Search.
+- Albums grid with pagination (100 per page) and a sort menu (A–Z, Newest,
+  Recently Played, Most Played, Random).
+- Album detail groups tracks by disc when an album spans more than one disc and
+  shows the total track count and duration.
+- Smart playlists (Navidrome `.nsp`) are read-only. Regular playlists support
+  create, rename, delete, drag-to-reorder, and add tracks via search.
+- Favorites for songs, albums, and artists.
+- Debounced search across artists, albums, and songs.
+- Synced lyrics via OpenSubsonic `getLyricsBySongId`; click a line to seek.
 
 ### Playback
 
-- `AVQueuePlayer`-based streaming with gapless transitions: when the current track is within
-  10 s of its end, the next `AVPlayerItem` is preloaded and inserted so the system advances
-  with no audible gap. `next()`, queue mutations, shuffle, and repeat-mode changes invalidate
-  the preload so it always reflects the live queue.
-- Queue: Play, Play Next, Add to Queue, Reorder, Remove, Clear, Play From Queue (jump-to)
-- Shuffle (preserves the current track at index 0; Un-shuffle restores original order)
-- Repeat: Off / All / One
-- Submission scrobble at 50% (or 4 minutes), now-playing scrobble at start, via Subsonic `scrobble`
-- Synced lyrics via OpenSubsonic `getLyricsBySongId` — current line highlighted, auto-scrolls,
-  click any line to seek there
+- `AVQueuePlayer` with gapless transitions: the next track is preloaded when the
+  current one is within 10 s of its end.
+- Queue: Play, Play Next, Add to Queue, Reorder, Remove, Clear.
+- Shuffle. Repeat (Off / All / One).
+- Scrobbling: now-playing on start, submission at 50 % or 4 minutes.
+- Queue, playhead, shuffle, repeat, and volume are persisted across launches.
 
-### System Now Playing
+### macOS integration
 
-- `MPNowPlayingInfoCenter` is updated on every track change, play/pause toggle, and seek with
-  title, artist, album, duration, elapsed playback time, and playback rate. Artwork (downsampled
-  to 600 px) loads from `CoverArtCache` and is published once per song. macOS Control Center, the
-  menu-bar Now Playing widget, and Sonos handoff see the current track.
-- `MPRemoteCommandCenter` is wired for play, pause, toggle play/pause, next, previous, and
-  change-playback-position so media keys, AirPods double-tap, and Control Center scrubbing all
-  steer playback.
+- `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`: Control Center, the
+  menu-bar Now Playing widget, media keys, AirPods double-tap, and Control
+  Center scrubbing all see and steer playback.
+- Optional menu-bar status item with a mini transport popover.
+- Closing the window does not quit the app.
 
 ### Mini-player and Now Playing
 
-- Bottom mini-player: cover, title/artist, heart, shuffle, prev/play-pause/next, repeat,
-  scrubber + time, volume slider. Click the **title** to jump to the current album, click the
-  **artist** name to jump to that artist. Right-click the **cover thumbnail** for Play Next on
-  Album / Go to Album / Go to Artist / Show in Library.
-- Click the cover thumbnail to **slide up an inline Now Playing panel** (not a separate window or
-  modal sheet — it animates up within the same window over the library content). The backdrop is
-  the current cover art, scaled up and blurred behind a translucent material, so the panel always
-  carries the colour mood of the current track and stays legible regardless of the cover's
-  brightness. The backdrop cross-fades on every track change. The mini-player slides out of the
-  safe area while the Now Playing panel is open (they expose the same transport) and slides back
-  when the panel is dismissed. Press **Esc** or click the chevron at the top-right to slide it
-  back down.
-- Now Playing layout: large cover, transport, scrubber, shuffle/repeat/heart row, plus tabbed
-  right pane with **Queue** (drag to reorder within the list; **drop tracks dragged from any
-  track list** to insert at that position; double-click to jump; right-click for Remove) and
-  **Lyrics** (synced when available, click any line to seek there).
+- Bottom mini-player: cover, title and artist, transport, scrubber, volume.
+- Click the mini-player cover to open the Now Playing panel (large cover,
+  transport, queue, lyrics).
+- Click the title or artist in the mini-player to navigate to that album or
+  artist.
+- Drag a track from any list onto the Now Playing queue to insert at that
+  position.
 
 ### Keyboard shortcuts
 
-- **Space** — play / pause (when no text field has focus)
-- **⌘P** — play / pause (always)
-- **⌘→ / ⌘←** — next / previous track
-- **⌘F** — switch to Search and focus the query field
-- **⌘1..⌘5** — switch sidebar section (Albums / Artists / Songs / Playlists / Favorites)
-- **⌘L** — open the current track's album (uses `albumId` if the server returned one)
-- In **track lists**: ↑/↓ select rows, **Return** plays the highlighted track
-- In the **Albums grid**: ←/→/↑/↓ move a selection ring across tiles, **Return** opens the album
+- Space — play / pause
+- ⌘P — play / pause
+- ⌘← / ⌘→ — previous / next
+- ⌘F — focus search
+- ⌘1..⌘5 — sidebar sections (Albums, Artists, Songs, Playlists, Favorites)
+- ⌘L — open the current track's album
+- ↑ / ↓ + Return in track lists
+- ← / → / ↑ / ↓ + Return in the albums grid
 
 ### Persistence
 
-- Server URL / username / password live in **macOS Keychain** (with one-shot migration from
-  any prior UserDefaults entry). Debug builds use `UserDefaults` instead and include a local
-  test-server preset so iterative rebuilds do not repeatedly prompt for Keychain access.
-- The current queue + queue index + current time + shuffle/repeat state + volume are saved to
-  `UserDefaults` on queue mutations and via a throttled playhead save. On launch, the mini-player shows
-  the last track in a **paused** state at the correct scrubber position; press Play (or Space)
-  to load the AVPlayerItem, seek to the saved time, and resume.
+- Credentials in macOS Keychain (`UserDefaults` in Debug builds).
+- Queue, playhead, shuffle / repeat / volume in `UserDefaults`.
 
-### Window + menu bar behavior
+## Not supported
 
-- Closing the window **does not quit the app** (`NSApplicationDelegate.applicationShouldTerminateAfterLastWindowClosed`
-  returns `false`). Reopen by clicking the dock icon or via the menu bar item.
-- An `NSStatusItem` is registered with `autosaveName = "SonanceStatusItem"` showing a music-note
-  glyph that toggles to a play-circle when something's playing. Clicking it opens an `NSPopover`
-  with the current track, prev/play/next, "Show Sonance", and "Quit". A toggle in the **Sonance > Settings**
-  menu (`Show Menu Bar Icon`) lets you hide it.
-- **Known limitation on macOS Tahoe (26)**: the menu bar collapses overflow items behind a `…`
-  button when the bar is full. If you have a lot of menu bar utilities (Dropbox, Stage Manager,
-  Focus, AirPods indicator, Bartender, etc.) the Sonance icon may sit behind that overflow.
-  Click the `…` to find it, or remove items from the menu bar via System Settings → Control
-  Center to free space.
-
-### Sign Out
-
-The Sign Out button is no longer in the window toolbar. It lives at the bottom of the sidebar
-in a server-info chip showing the current host and username, with a menu offering "Refresh
-Favorites", account switching, "Connect Another Server", and "Forget This Account". This matches
-the pattern in apps like Linear / Notion / Slack.
-
-## Feature parity vs. [vscode-subsonic-player](https://github.com/AlanHuang99/vscode-subsonic-player)
-
-| Capability | vscode-subsonic-player | Sonance |
-|---|---|---|
-| Library browsing (recent / random / most-played albums) | ✅ | ✅ (sort menu) |
-| Favorite songs view | ✅ | ✅ |
-| Album / Playlist detail with play actions | ✅ | ✅ |
-| Smart playlist (NSP) read | ✅ (Navidrome native API) | ✅ (Subsonic readonly + .nsp comment detection) |
-| Queue: Play Now / Play Next / Add to Queue / Reorder / Remove / Clear | ✅ | ✅ |
-| Favorites for tracks and albums | ✅ | ✅ (also artists) |
-| Synced lyrics with click-to-seek | ✅ | ✅ |
-| Search | ✅ | ✅ (debounced) |
-| Random songs | ✅ | ✅ |
-| Repeat / Shuffle | ✅ | ✅ |
-| Volume control | ✅ | ✅ |
-| Keyboard shortcuts (play/pause, next, prev) | ✅ | ✅ |
-| Scrobbling (submission to Navidrome history) | — | ✅ |
-| Multiple servers | ✅ | ✅ (saved accounts + switcher) |
-| Keychain credential storage | ✅ | ✅ |
-| Persistent queue across launches | ❌ | ✅ |
-| Refresh Library command | ✅ | ✅ (per-view refresh controls) |
-
-## What doesn't work yet
-
-- Smart-playlist editing — the Subsonic API doesn't expose .nsp rule editing; this is a Navidrome
-  limitation (Feishin and Supersonic have the same constraint). Editing requires writing the
-  .nsp file or using Navidrome's web UI.
-- Regular playlist editing (add/remove tracks, reorder)
-- Sleep timer, AirPlay
+- Smart-playlist (`.nsp`) editing — requires editing the `.nsp` file or
+  Navidrome's web UI. The Subsonic API doesn't expose rule editing.
+- Sleep timer.
+- AirPlay.
 
 ## Build
 
@@ -166,7 +76,7 @@ xcodegen generate
 open Sonance.xcodeproj
 ```
 
-For a one-shot ad-hoc build from the command line (no signing required):
+Command-line Debug build (ad-hoc signing, no certificate required):
 
 ```sh
 xcodegen generate
@@ -180,58 +90,50 @@ xcodebuild \
 open build/Build/Products/Debug/Sonance.app
 ```
 
-If local network or keychain permission prompts are annoying during development, prefer a signed run from Xcode (or `xcodebuild` without forcing ad-hoc signing) so the app retains trusted OS grants between rebuilds.
-
-For an easy local workflow:
+Run tests:
 
 ```sh
-./bin/dev.sh
+xcodebuild -project Sonance.xcodeproj -scheme Sonance \
+  -destination 'platform=macOS' \
+  -derivedDataPath build test
 ```
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for exact CI-style build/test commands, a Navidrome smoke-test
-checklist, request-count diagnostics, and current limitations.
+Local dev script: `./bin/dev.sh`. See [DEVELOPMENT.md](DEVELOPMENT.md) for more.
 
-## Installable releases
+## Release
 
-Releases are published from Git tags by GitHub Actions. A tag like `v0.1.0` builds a Release
-app, signs it with a Developer ID Application certificate, submits it to Apple notarization,
-staples the notarization ticket, then publishes both:
-
-- `Sonance-v0.1.0.dmg` — easiest install path; open and drag Sonance to Applications
-- `Sonance-v0.1.0.zip` — same notarized app as a zip
+Releases are published from Git tags by GitHub Actions. Pushing a tag like
+`v0.2.0` builds, signs with a Developer ID Application certificate, notarizes
+with Apple, and publishes `Sonance-vX.Y.Z.dmg` and `Sonance-vX.Y.Z.zip` to the
+GitHub Releases page.
 
 Required repository secrets:
 
 - `MACOS_CERT_P12_BASE64` — base64-encoded Developer ID Application `.p12`
-- `MACOS_CERT_P12_PASSWORD` — password for that `.p12`
-- `MACOS_KEYCHAIN_PASSWORD` — temporary CI keychain password
+- `MACOS_CERT_P12_PASSWORD`
+- `MACOS_KEYCHAIN_PASSWORD`
 - `MACOS_NOTARY_API_KEY_P8_BASE64` — base64-encoded App Store Connect API key `.p8`
-- `MACOS_NOTARY_API_KEY_ID` — API key ID
-- `MACOS_NOTARY_ISSUER_ID` — App Store Connect issuer ID
+- `MACOS_NOTARY_API_KEY_ID`
+- `MACOS_NOTARY_ISSUER_ID`
 
-Helpful encoding commands:
+Encode the key files:
 
 ```sh
 base64 -i DeveloperIDApplication.p12 | pbcopy
 base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
 ```
 
-Once the secrets are set, publish a release by pushing a version tag:
+Tag and push:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-Local unsigned release build:
+Local unsigned Release build and DMG:
 
 ```sh
-./scripts/build-release-app.sh 0.1.0-local 1
-```
-
-Local DMG packaging from that build:
-
-```sh
+./scripts/build-release-app.sh 0.2.0-local 1
 ./scripts/make-dmg.sh build/Build/Products/Release/Sonance.app build/Sonance-local.dmg
 ```
 
@@ -239,57 +141,42 @@ Local DMG packaging from that build:
 
 ```
 Sonance/
-  SonanceApp.swift          # @main, hosts Auth + Player + LibraryStore as @StateObject
-  ContentView.swift         # routes login vs library, places MiniPlayerBar via safeAreaInset
-  Auth/                     # ServerCredentials, AuthStore (login state + persistence)
-  Networking/               # SubsonicClient (URL building, auth tokens), SubsonicError
-  Library/                  # LibraryStore shared cache + request de-duplication
-  Models/                   # Decodable Subsonic response types
-  Playback/Player.swift     # AVPlayer wrapper, queue, time/end observers
-  Views/
-    LoginView.swift
-    LibraryView.swift       # NavigationSplitView host with sidebar
-    AlbumsView.swift        # grid + AlbumTile
-    AlbumDetailView.swift   # cover/title/play + track list (uses TrackListView)
-    ArtistsView.swift       # list + ArtistDetailView (their albums)
-    SongsView.swift         # random songs sample
-    PlaylistsView.swift     # split view: list of playlists + selected detail
-    SearchView.swift        # debounced search across types
-    TrackListView.swift     # shared track list with double-click-to-play
-    MiniPlayerBar.swift     # bottom bar with transport + scrubber
-  Assets.xcassets/
-    AppIcon.appiconset/     # generated by tools/make_icon.swift
-    AccentColor.colorset/
-  Sonance.entitlements      # sandbox + network client
-  Info.plist                # generated by xcodegen; ATS allows arbitrary loads (HTTP servers OK)
-tools/
-  make_icon.swift           # CoreGraphics icon renderer; outputs all required AppIcon sizes
-project.yml                 # XcodeGen project config
+  SonanceApp.swift          @main; hosts Auth, Player, FavoritesStore,
+                            LibraryStore, NavigationCoordinator.
+  ContentView.swift         Login vs. library routing; mini-player + Now Playing.
+  AppDelegate.swift         Status item, popover, keep-running-on-close.
+  Auth/                     ServerCredentials, AuthStore, KeychainHelper.
+  Networking/               SubsonicClient, SubsonicError, NetworkDiagnostics.
+  Library/                  LibraryStore (shared cache + de-duplication),
+                            NavigationCoordinator.
+  Models/                   Subsonic response types.
+  Playback/
+    Player.swift            AVQueuePlayer wrapper, queue, gapless preload.
+    NowPlayingCenter.swift  Bridge to MPNowPlayingInfoCenter and
+                            MPRemoteCommandCenter.
+    CoverArtCache.swift     Two-tier (memory + disk) cover-art cache.
+    FavoritesStore.swift    Star / unstar state.
+    PlaybackQueueLogic.swift  Pure queue mutations (used by Player and tests).
+  Views/                    SwiftUI views.
+  Assets.xcassets/          AppIcon (generated by tools/make_icon.swift),
+                            AccentColor.
+  Sonance.entitlements      Sandbox + network client.
+  Info.plist                Generated by xcodegen.
+SonanceTests/               XCTest target.
+tools/make_icon.swift       Icon renderer.
+project.yml                 XcodeGen project config.
 ```
 
 ## Subsonic / Navidrome notes
 
-- All API calls go through `SubsonicClient`. Auth uses the salted-MD5 token form (`u`, `t`, `s`)
-  with a fresh salt per request, not plaintext passwords on the wire.
-- The decoder uses a generic `SubsonicEnvelope<Body>` that decodes the body alongside `status` /
-  `version` / `error` from the same JSON level — each endpoint just declares its own response
-  type with its specific top-level field (`albumList2`, `playlists`, etc.).
-- Streaming uses `getStream?id=...` URLs which are self-authenticating via query params, so
-  AVPlayer can use them directly without custom URL session work.
-- Cover art uses `getCoverArt?id=...&size=N`; the detail view requests size 400, the mini-player
-  requests size 96, and grid tiles use the default 300.
-- ATS in `Info.plist` has `NSAllowsArbitraryLoads = true` because most Navidrome installs are on
-  plaintext HTTP behind a LAN; remove that if your server is HTTPS-only.
-
-## Hard-won SwiftUI lessons baked into this codebase
-
-- `List(data, selection:)` does **not** drive the selection binding reliably on macOS when `data`
-  is `Identifiable`. Always use `List(selection:) { ForEach(items, id: \.self) { ... } }` for
-  selectable sidebars and lists. Burned three iterations on this; see
-  `Views/LibraryView.swift` and `Views/PlaylistsView.swift`.
-- Synthetic mouse events via CGEvent / cliclick / osascript-click *can* hit a SwiftUI list row
-  and trigger hover, but won't update a selection binding if that binding is broken. If clicks
-  "don't change selection," check the binding pattern first before debugging the input layer.
-- `@MainActor` `ObservableObject`s with `@Published` properties from `Combine` are the simplest
-  way to plumb playback state into SwiftUI views. AVPlayer's periodic time observer needs a
-  `Task { @MainActor in ... }` hop because it calls back on a queue you specify.
+- Auth uses the salted-MD5 token form (`u`, `t`, `s`). Cover-art and stream
+  URLs use a memoized salt+token per `SubsonicClient` so URLs stay stable for
+  the lifetime of a session; other endpoints rotate the salt per call.
+- Streaming uses `getStream?id=...` URLs, which `AVPlayer` loads directly.
+- Cover art uses `getCoverArt?id=...&size=N`. Sizes used in the app: 96
+  (mini-player), 300 (grid), 400 (album detail), 600 (Now Playing and system
+  Now Playing artwork). Decoded `NSImage`s are cached in memory (64 MB cap by
+  decoded-pixel cost) and on disk under
+  `~/Library/Caches/com.alanhuang.Sonance/covers/` (200 MB cap, LRU eviction).
+- `Info.plist` sets `NSAllowsArbitraryLoads = true` so HTTP-only Navidrome
+  installs on a LAN work. Remove it if your server is HTTPS-only.
