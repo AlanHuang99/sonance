@@ -38,6 +38,7 @@ struct AccountManagementView: View {
             }
             .padding(28)
         }
+        .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
         .navigationTitle("Accounts")
         .onAppear(perform: selectInitialAccount)
     }

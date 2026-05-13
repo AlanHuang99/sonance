@@ -35,12 +35,10 @@ struct GenresView: View {
                     }
                     .padding(20)
                 }
+                .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
             }
         }
         .navigationTitle("Genres")
-        .navigationDestination(for: Genre.self) { genre in
-            GenreDetailView(genre: genre)
-        }
         .task { await load() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -118,6 +116,7 @@ struct GenreDetailView: View {
                 .padding(.horizontal, 20).padding(.vertical, 16)
             }
         }
+        .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
         .navigationTitle(genre.value)
         .task { await load() }
         .toolbar {

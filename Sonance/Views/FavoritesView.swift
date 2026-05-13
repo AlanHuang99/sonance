@@ -34,8 +34,6 @@ struct FavoritesView: View {
             content
         }
         .navigationTitle("Favorites")
-        .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-        .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
         .task { await load() }
         .onChange(of: favorites.songIDs) { _, newIDs in reconcileSongs(newIDs) }
         .onChange(of: favorites.albumIDs) { _, newIDs in reconcileAlbums(newIDs) }
@@ -128,6 +126,7 @@ struct FavoritesView: View {
                 }
                 .padding(20)
             }
+            .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
         }
     }
 

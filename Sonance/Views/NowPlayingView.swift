@@ -158,6 +158,23 @@ struct NowPlayingView: View {
                 .buttonStyle(.borderless)
                 .font(.title3)
 
+                // Inline volume row. The mini-player is hidden while Now Playing is open, so
+                // without this control the user has no way to adjust volume from inside the
+                // panel.
+                HStack(spacing: 10) {
+                    Image(systemName: volumeIconName)
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                        .frame(width: 18)
+                    Slider(value: $player.volume, in: 0...1)
+                        .frame(maxWidth: 220)
+                    Image(systemName: "speaker.wave.3.fill")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .frame(width: 18)
+                }
+                .padding(.top, 4)
+
                 Spacer(minLength: 0)
             } else {
                 Text("Nothing playing").foregroundStyle(.secondary).frame(maxHeight: .infinity)
@@ -191,6 +208,14 @@ struct NowPlayingView: View {
 
     private func cover(for song: Song) -> some View {
         CoverArtImage(coverArtID: song.coverArt, size: 600, client: auth.client, corner: 8)
+    }
+
+    private var volumeIconName: String {
+        let v = player.volume
+        if v <= 0 { return "speaker.slash" }
+        if v < 0.34 { return "speaker.wave.1" }
+        if v < 0.67 { return "speaker.wave.2" }
+        return "speaker.wave.3"
     }
 
     private func formatTime(_ s: TimeInterval) -> String {
