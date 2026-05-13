@@ -306,7 +306,12 @@ final class SubsonicClient: @unchecked Sendable {
             URLQueryItem(name: "c", value: clientName),
             URLQueryItem(name: "f", value: "json"),
         ]
-        for (k, v) in params {
+        // Sort params by key so the resulting query string is deterministic. `for (k, v) in
+        // params` over a Dictionary uses Swift's randomized hash seed and can produce
+        // different orderings across calls even within a single process, which breaks
+        // anything that caches by URL identity (AVPlayer's URLCache, CoverArtCache via the
+        // raw URL) and makes integration tests that compare URLs flaky.
+        for (k, v) in params.sorted(by: { $0.key < $1.key }) {
             items.append(URLQueryItem(name: k, value: v))
         }
         components.queryItems = items
