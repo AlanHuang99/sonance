@@ -4,6 +4,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-05-13
+
+### Fixed
+
+- Cross-link navigation (clicking an artist or album name from inside another
+  section's detail page) now reliably opens the destination's detail view.
+  The previous design used a single `NavigationStack` whose root view's type
+  swapped on every section change; SwiftUI dropped pushes during that swap
+  frame, so the user landed on the target section's root with no detail
+  visible. `LibraryView` now hosts one `NavigationStack` per section, each
+  with a stable root view and its own `NavigationPath`. Cross-link routing
+  prepares the target section's path before flipping the visible section.
+- Similar-artists names on the Artist page (and other scrolling detail
+  surfaces) are no longer hidden under the mini-player bar. Each detail-pane
+  `ScrollView` now reserves a bottom content margin equal to the mini-player
+  height; `NavigationSplitView`'s detail column does not propagate the
+  outer `safeAreaInset` to inner `ScrollView`s on macOS 14, so the inset is
+  applied explicitly.
+
+### Added
+
+- Track rows in mixed-album contexts (Search, Favorites songs, Discover
+  songs, smart and regular playlists) show a 36 × 36 album cover thumbnail
+  before the title, with the play / currently-playing indicator overlaid on
+  hover. Album detail keeps the prior track-number column because every
+  track would carry the same album thumbnail there.
+- Always-visible volume control in the mini-player: a speaker icon button
+  that reflects the current volume level and pops a slider on click. The
+  prior inline slider lived inside a `ViewThatFits` that hid it on narrow
+  windows. The popover includes a mute toggle that remembers the prior
+  level.
+- Inline volume slider in the Now Playing pane, since the mini-player is
+  hidden while Now Playing is open.
+
+### Changed
+
+- DMG installer now opens to a 540 × 360 icon-view window with Sonance.app
+  on the left and an Applications shortcut on the right (sidebar / toolbar
+  / status bar hidden, icons at 128 pt), so the drag-to-install gesture is
+  immediately obvious. `make-dmg.sh` is self-contained — no extra tooling
+  dependency on top of the macOS `hdiutil` / `osascript` already used by CI.
+
 ## [0.3.0] — 2026-05-13
 
 ### Added
@@ -87,6 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
+[0.3.1]: https://github.com/AlanHuang99/sonance/releases/tag/v0.3.1
 [0.3.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.3.0
 [0.2.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.2.0
 [0.1.2]: https://github.com/AlanHuang99/sonance/releases/tag/v0.1.2
