@@ -234,12 +234,17 @@ struct NowPlayingBackdrop: View {
         }
         loadingKey = key
         if let immediate = CoverArtCache.shared.memoryImage(forKey: key) {
+            // `.task(id:)` cancels the previous task when `cacheKey` changes, but cancellation
+            // is cooperative and this branch runs without an await. Skip the publish if we've
+            // been cancelled so a stale memory hit from a superseded load doesn't briefly
+            // repaint the backdrop with the wrong cover.
+            guard !Task.isCancelled else { return }
             image = immediate
             imageKey = key
             return
         }
         let loaded = await CoverArtCache.shared.image(for: coverArtID, size: 600, client: client)
-        guard loadingKey == key else { return }
+        guard !Task.isCancelled, loadingKey == key else { return }
         image = loaded
         imageKey = key
     }

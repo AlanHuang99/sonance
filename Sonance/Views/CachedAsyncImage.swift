@@ -73,6 +73,10 @@ private final class CoverArtImageLoader: ObservableObject {
         // Fast path: synchronous peek at the in-memory tier so a SwiftUI re-render of an already
         // cached cover does not flash a placeholder while the actor hop completes.
         if let immediate = CoverArtCache.shared.memoryImage(forKey: cacheKey) {
+            // `.task(id:)` cancellation is cooperative; this no-await fast path can still
+            // run on a superseded task. Skip the publish if cancelled so a stale hit from
+            // the prior key doesn't briefly replace the live key's content.
+            guard !Task.isCancelled else { return }
             state = .success(immediate)
             return
         }
