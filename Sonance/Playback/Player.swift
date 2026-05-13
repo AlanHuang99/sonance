@@ -387,7 +387,13 @@ final class Player: ObservableObject {
     }
 
     private func clearPreload() {
-        if let item = preloadedNextItem {
+        if let item = preloadedNextItem, item !== avPlayer.currentItem {
+            // Per Apple: `AVQueuePlayer.remove(_:)` on the currently playing item is
+            // equivalent to `advanceToNextItem()`. If `AVQueuePlayer` has already advanced
+            // to the preloaded item at the track boundary but `handleTrackEnd` hasn't run
+            // yet to clear our markers, calling `remove` here would silently skip the new
+            // track. Guard against that — just drop our reference; the item is now the
+            // current one and `handleTrackEnd` will reconcile state shortly.
             avPlayer.remove(item)
         }
         preloadedNextItem = nil

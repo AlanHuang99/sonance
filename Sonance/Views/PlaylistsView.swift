@@ -217,14 +217,11 @@ struct PlaylistDetailView: View {
     @State private var isLoading = false
     @State private var actionError: String?
     @State private var showingAddTracks = false
-    /// Serialises drag-reorder requests so two quick successive drags don't have their
-    /// `playlistReplaceContents` calls race — without this, the older request can finish
-    /// last and overwrite the newer order on the server.
-    @State private var reorderTask: Task<Void, Never>?
-    /// Serialises track removals so multi-row deletes hit the server one index at a time,
-    /// not concurrently (the index of the second target depends on whether the first removal
-    /// has landed yet).
-    @State private var removalTask: Task<Void, Never>?
+    /// Single mutation queue covering reorder + removal + (future) other positional edits.
+    /// Two separate chains would let a delete fire `updatePlaylist` against an unsynced
+    /// reorder — Subsonic's index-based removal semantics need a strict total order across
+    /// every mutation, not just within one family.
+    @State private var mutationTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -364,22 +361,21 @@ struct PlaylistDetailView: View {
     }
 
     private func scheduleReorder(to newSongs: [Song]) {
-        let prior = reorderTask
-        reorderTask = Task { [newSongs] in
-            // Wait for any in-flight reorder to finish before starting the next, so the
-            // server ends up reflecting the latest drop. Cancellation would also work, but
-            // the chunked replace is many calls and partial completion is harder to reason
-            // about than a few extra round trips.
-            _ = await prior?.value
-            await reorder(to: newSongs)
-        }
+        enqueueMutation { [self] in await reorder(to: newSongs) }
     }
 
     private func scheduleRemoval(indices: [Int]) {
-        let prior = removalTask
-        removalTask = Task { [indices] in
+        enqueueMutation { [self] in await removeTracks(at: indices) }
+    }
+
+    /// Chain `work` onto the single mutation queue so reorders and removals are applied to
+    /// the server in a strict total order. Index-based ops on Subsonic playlists are
+    /// otherwise stateful in ways that don't compose with concurrent issuance.
+    private func enqueueMutation(_ work: @escaping () async -> Void) {
+        let prior = mutationTask
+        mutationTask = Task {
             _ = await prior?.value
-            await removeTracks(at: indices)
+            await work()
         }
     }
 
