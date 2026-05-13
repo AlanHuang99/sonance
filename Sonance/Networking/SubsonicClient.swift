@@ -7,9 +7,18 @@ final class SubsonicClient: @unchecked Sendable {
     private let clientName = "Sonance"
     private let apiVersion = "1.16.1"
 
+    /// Stable (salt, token) pair memoized per client instance for cover-art and stream URLs.
+    /// Subsonic permits salt reuse; pinning these for media keeps URLs identical across calls so
+    /// downstream caches (URLCache, AVPlayer, our cover-art cache key) see consistent identities.
+    private let mediaSalt: String
+    private let mediaToken: String
+
     init(credentials: ServerCredentials, urlSession: URLSession = .shared) {
         self.credentials = credentials
         self.urlSession = urlSession
+        let salt = Self.randomSalt()
+        self.mediaSalt = salt
+        self.mediaToken = Self.md5(credentials.password + salt)
     }
 
     func ping() async throws {
@@ -98,17 +107,90 @@ final class SubsonicClient: @unchecked Sendable {
         return detail
     }
 
+    /// Creates an empty playlist. Returns the server-assigned playlist if the response carried
+    /// one; some servers reply with just status=ok, in which case the caller should refresh.
+    @discardableResult
+    func createPlaylist(name: String) async throws -> PlaylistDetail? {
+        let resp: PlaylistDetailResponse = try await get("createPlaylist", params: ["name": name])
+        return resp.playlist
+    }
+
+    func renamePlaylist(id: String, to newName: String) async throws {
+        let _: PingResponse = try await get("updatePlaylist", params: ["playlistId": id, "name": newName])
+    }
+
+    func deletePlaylist(id: String) async throws {
+        let _: PingResponse = try await get("deletePlaylist", params: ["id": id])
+    }
+
+    /// Append a single song to a playlist. Subsonic's `updatePlaylist` supports `songIdToAdd`
+    /// being passed multiple times in one request, but our scalar `params` dictionary cannot
+    /// carry duplicate keys; callers wrap this in a loop when adding multiple tracks.
+    func playlistAddSong(playlistID: String, songID: String) async throws {
+        let _: PingResponse = try await get("updatePlaylist", params: [
+            "playlistId": playlistID,
+            "songIdToAdd": songID,
+        ])
+    }
+
+    /// Remove the track at the given index (0-based) from the playlist.
+    func playlistRemoveSong(playlistID: String, index: Int) async throws {
+        let _: PingResponse = try await get("updatePlaylist", params: [
+            "playlistId": playlistID,
+            "songIndexToRemove": String(index),
+        ])
+    }
+
+    /// Replace a playlist's contents by appending the new desired songs first, then removing
+    /// the original entries. Chunked across `updatePlaylist` calls so each request's URL stays
+    /// well under common server/proxy length limits.
+    ///
+    /// Phase 1 — append the new songs in the requested order. After this phase the playlist
+    ///           reads `[old..., new...]`.
+    /// Phase 2 — remove the original entries, which still live at indices `0..<currentCount`
+    ///           because new additions were appended to the tail. Within each removal chunk,
+    ///           indices descend so that pending removals stay valid even if the server
+    ///           processes them in declared order. After this phase the playlist reads
+    ///           `[new...]`.
+    ///
+    /// Ordering additions before removals makes a partial failure recoverable: a transient
+    /// error between phases leaves the playlist holding both old and new (a visible mess the
+    /// user can re-attempt), instead of the reverse order which would leave the playlist
+    /// partially or fully empty (data loss).
+    ///
+    /// `chunkSize` defaults to 100 items per request (~3 KB of query data on top of the
+    /// ~200 bytes of auth params), so even a thousand-track reorder stays under 4 KB per call.
+    func playlistReplaceContents(playlistID: String, currentCount: Int, songIDs: [String], chunkSize: Int = 100) async throws {
+        for chunk in songIDs.chunked(into: max(1, chunkSize)) {
+            var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
+            for id in chunk {
+                query.append(URLQueryItem(name: "songIdToAdd", value: id))
+            }
+            let _: PingResponse = try await getQuery("updatePlaylist", items: query)
+        }
+        if currentCount > 0 {
+            let descending = (0..<currentCount).reversed()
+            for chunk in descending.chunked(into: max(1, chunkSize)) {
+                var query: [URLQueryItem] = [URLQueryItem(name: "playlistId", value: playlistID)]
+                for i in chunk {
+                    query.append(URLQueryItem(name: "songIndexToRemove", value: String(i)))
+                }
+                let _: PingResponse = try await getQuery("updatePlaylist", items: query)
+            }
+        }
+    }
+
     func streamURL(id: String) -> URL? {
-        try? buildURL(endpoint: "stream", params: ["id": id])
+        try? buildURL(endpoint: "stream", params: ["id": id], stableAuth: true)
     }
 
     func coverArtURL(id: String, size: Int = 300) -> URL? {
-        try? buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
+        try? buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)], stableAuth: true)
     }
 
     func coverArtData(id: String, size: Int = 300) async throws -> Data {
         NetworkDiagnostics.record("getCoverArt:\(size)")
-        let url = try buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)])
+        let url = try buildURL(endpoint: "getCoverArt", params: ["id": id, "size": String(size)], stableAuth: true)
         let (data, response) = try await urlSession.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw SubsonicError(code: http.statusCode, message: "Cover art request failed with HTTP \(http.statusCode)")
@@ -135,7 +217,25 @@ final class SubsonicClient: @unchecked Sendable {
         return body
     }
 
-    private func buildURL(endpoint: String, params: [String: String]) throws -> URL {
+    /// Variant of `get` that carries repeated query parameters (e.g. multiple
+    /// `songIdToAdd` values for `updatePlaylist`). The `[String: String]` form can't express
+    /// duplicates.
+    private func getQuery<T: Decodable>(_ endpoint: String, items: [URLQueryItem]) async throws -> T {
+        NetworkDiagnostics.record(endpoint)
+        let url = try buildQueryURL(endpoint: endpoint, items: items)
+        let (data, _) = try await urlSession.data(from: url)
+        let envelope = try JSONDecoder().decode(SubsonicEnvelope<T>.self, from: data)
+        let resp = envelope.subsonicResponse
+        if resp.status == "failed", let err = resp.error {
+            throw SubsonicError(code: err.code, message: err.message)
+        }
+        guard let body = resp.body else {
+            throw SubsonicError(code: -1, message: "Empty response from server")
+        }
+        return body
+    }
+
+    private func buildQueryURL(endpoint: String, items: [URLQueryItem]) throws -> URL {
         let trimmed = credentials.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed) else {
             throw SubsonicError(code: -1, message: "Invalid server URL")
@@ -145,6 +245,39 @@ final class SubsonicClient: @unchecked Sendable {
         components.path = path + "rest/" + endpoint
         let salt = Self.randomSalt()
         let token = Self.md5(credentials.password + salt)
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "u", value: credentials.username),
+            URLQueryItem(name: "t", value: token),
+            URLQueryItem(name: "s", value: salt),
+            URLQueryItem(name: "v", value: apiVersion),
+            URLQueryItem(name: "c", value: clientName),
+            URLQueryItem(name: "f", value: "json"),
+        ]
+        query.append(contentsOf: items)
+        components.queryItems = query
+        guard let url = components.url else {
+            throw SubsonicError(code: -1, message: "Could not construct request URL")
+        }
+        return url
+    }
+
+    private func buildURL(endpoint: String, params: [String: String], stableAuth: Bool = false) throws -> URL {
+        let trimmed = credentials.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed) else {
+            throw SubsonicError(code: -1, message: "Invalid server URL")
+        }
+        var path = components.path
+        if !path.hasSuffix("/") { path += "/" }
+        components.path = path + "rest/" + endpoint
+        let salt: String
+        let token: String
+        if stableAuth {
+            salt = mediaSalt
+            token = mediaToken
+        } else {
+            salt = Self.randomSalt()
+            token = Self.md5(credentials.password + salt)
+        }
         var items: [URLQueryItem] = [
             URLQueryItem(name: "u", value: credentials.username),
             URLQueryItem(name: "t", value: token),
@@ -171,5 +304,25 @@ final class SubsonicClient: @unchecked Sendable {
     private static func md5(_ s: String) -> String {
         let digest = Insecure.MD5.hash(data: Data(s.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private extension Collection {
+    /// Split into batches of up to `size` elements. Used to keep `updatePlaylist` URLs under
+    /// common server/proxy length limits for large playlists.
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [Array(self)] }
+        var result: [[Element]] = []
+        var current: [Element] = []
+        current.reserveCapacity(size)
+        for element in self {
+            current.append(element)
+            if current.count == size {
+                result.append(current)
+                current.removeAll(keepingCapacity: true)
+            }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
     }
 }

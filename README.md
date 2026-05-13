@@ -8,27 +8,48 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 ## What works
 
 - Sign-in to a Navidrome / Subsonic-API server (salted-MD5 token auth)
-- **Albums** — grid view backed by `getAlbumList2`. Sort menu: A–Z / Newest / Recently Played /
-  Most Played / Random. Heart overlay shows favorited albums. Right-click for Play / Play Next /
-  Add to Queue / Toggle Favorite.
+- Album / song metadata: `Song` now decodes `albumId`, `track`, `discNumber`, `bitRate`,
+  `genre`, and `playCount` from the Subsonic JSON; `Album` and `AlbumDetail` decode `genre`
+  and `playCount`. Track lists show server-reported track numbers when present and fall back
+  to the row index otherwise. Album detail pages group tracks by `discNumber` when an album
+  spans more than one disc, with "Disc N" section headers; the header also reports total
+  album duration ("12 tracks · 47 min").
+- **Albums** — grid view backed by `getAlbumList2`. **Paginated** at 100 per request; an end-of-grid
+  sentinel triggers the next page once it scrolls into view, with a small spinner at the bottom
+  during load. Sort menu (A–Z / Newest / Recently Played / Most Played / Random) is inline at the
+  top of the grid; changing sort resets to page 0 and ignores any in-flight stale loads. Heart
+  overlay shows favorited albums. Right-click for Play / Play Next / Add to Queue / Toggle
+  Favorite.
 - **Artists** — alphabetical list; click to see their albums
 - **Songs** — random sample from `getRandomSongs` (Shuffle to refresh)
-- **Playlists** — read view of all server playlists, with **smart-playlist (NSP) detection**:
-  Navidrome marks .nsp-derived playlists with `readonly: true` and `comment: "Auto-imported from
-  '*.nsp'"`; both surface with a sparkles icon and a yellow "Smart" badge.
+- **Playlists** — list/detail view with **smart-playlist (NSP) detection**: Navidrome marks
+  .nsp-derived playlists with `readonly: true` and `comment: "Auto-imported from '*.nsp'"`;
+  both surface with a sparkles icon and a yellow "Smart" badge. Non-smart playlists are
+  editable: a "+" toolbar button creates a new (empty) playlist; right-clicking a row offers
+  Rename / Delete; the detail page lets you drag rows to reorder, remove tracks from the
+  context menu, and add tracks via a search-based picker sheet. Smart playlists remain
+  read-only.
 - **Favorites** — sidebar section with Songs / Albums / Artists tabs, backed by `getStarred2`.
   Heart buttons across the app toggle star/unstar via the Subsonic API; state stays in sync via
-  a global `FavoritesStore`.
+  a global `FavoritesStore`. Toggling a heart **does not** trigger a full `getStarred2` re-fetch;
+  the locally-loaded `Starred2Container` is reconciled in place against the store's ID sets.
+  Refresh is still available for manual full reload.
 - **Search** — debounced search3 across artists, albums, and songs
 - Shared in-memory library cache avoids re-fetching album lists, artists, details, playlists,
   favorites, random songs, and repeated search results during normal navigation. Refresh controls
   bypass cache intentionally.
-- Cover art uses stable cache keys and an `NSCache` of decoded `NSImage` values, so rotating
-  Subsonic auth tokens do not defeat image reuse.
+- Cover art is served by a two-tier `CoverArtCache` actor: an in-memory `NSCache` capped at 64 MB
+  by decoded-pixel cost, and a JPEG/PNG on-disk cache under
+  `~/Library/Caches/com.alanhuang.Sonance/covers/` capped at 200 MB with LRU eviction on first
+  miss after launch. Cover-art and stream URLs use a memoized salt+token per `SubsonicClient`,
+  so URLs stay stable across SwiftUI re-renders and `URLCache`/`AVPlayer` can identify them.
 
 ### Playback
 
-- AVPlayer-based streaming with auto-advance to the next track
+- `AVQueuePlayer`-based streaming with gapless transitions: when the current track is within
+  10 s of its end, the next `AVPlayerItem` is preloaded and inserted so the system advances
+  with no audible gap. `next()`, queue mutations, shuffle, and repeat-mode changes invalidate
+  the preload so it always reflects the live queue.
 - Queue: Play, Play Next, Add to Queue, Reorder, Remove, Clear, Play From Queue (jump-to)
 - Shuffle (preserves the current track at index 0; Un-shuffle restores original order)
 - Repeat: Off / All / One
@@ -36,15 +57,33 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 - Synced lyrics via OpenSubsonic `getLyricsBySongId` — current line highlighted, auto-scrolls,
   click any line to seek there
 
+### System Now Playing
+
+- `MPNowPlayingInfoCenter` is updated on every track change, play/pause toggle, and seek with
+  title, artist, album, duration, elapsed playback time, and playback rate. Artwork (downsampled
+  to 600 px) loads from `CoverArtCache` and is published once per song. macOS Control Center, the
+  menu-bar Now Playing widget, and Sonos handoff see the current track.
+- `MPRemoteCommandCenter` is wired for play, pause, toggle play/pause, next, previous, and
+  change-playback-position so media keys, AirPods double-tap, and Control Center scrubbing all
+  steer playback.
+
 ### Mini-player and Now Playing
 
 - Bottom mini-player: cover, title/artist, heart, shuffle, prev/play-pause/next, repeat,
-  scrubber + time, volume slider
+  scrubber + time, volume slider. Click the **title** to jump to the current album, click the
+  **artist** name to jump to that artist. Right-click the **cover thumbnail** for Play Next on
+  Album / Go to Album / Go to Artist / Show in Library.
 - Click the cover thumbnail to **slide up an inline Now Playing panel** (not a separate window or
-  modal sheet — it animates up within the same window over the library content, with a translucent
-  blur background). Press **Esc** or click the chevron at the top-right to slide it back down.
+  modal sheet — it animates up within the same window over the library content). The backdrop is
+  the current cover art, scaled up and blurred behind a translucent material, so the panel always
+  carries the colour mood of the current track and stays legible regardless of the cover's
+  brightness. The backdrop cross-fades on every track change. The mini-player slides out of the
+  safe area while the Now Playing panel is open (they expose the same transport) and slides back
+  when the panel is dismissed. Press **Esc** or click the chevron at the top-right to slide it
+  back down.
 - Now Playing layout: large cover, transport, scrubber, shuffle/repeat/heart row, plus tabbed
-  right pane with **Queue** (drag to reorder, double-click to jump, right-click for Remove) and
+  right pane with **Queue** (drag to reorder within the list; **drop tracks dragged from any
+  track list** to insert at that position; double-click to jump; right-click for Remove) and
   **Lyrics** (synced when available, click any line to seek there).
 
 ### Keyboard shortcuts
@@ -52,6 +91,11 @@ fact that Electron-based Subsonic clients (Feishin, Supersonic) feel sluggish on
 - **Space** — play / pause (when no text field has focus)
 - **⌘P** — play / pause (always)
 - **⌘→ / ⌘←** — next / previous track
+- **⌘F** — switch to Search and focus the query field
+- **⌘1..⌘5** — switch sidebar section (Albums / Artists / Songs / Playlists / Favorites)
+- **⌘L** — open the current track's album (uses `albumId` if the server returned one)
+- In **track lists**: ↑/↓ select rows, **Return** plays the highlighted track
+- In the **Albums grid**: ←/→/↑/↓ move a selection ring across tiles, **Return** opens the album
 
 ### Persistence
 

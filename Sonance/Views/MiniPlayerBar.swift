@@ -4,7 +4,10 @@ struct MiniPlayerBar: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var favorites: FavoritesStore
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var navigation: NavigationCoordinator
     @Binding var showingNowPlaying: Bool
+    @State private var actionError: String?
 
     var body: some View {
         if let song = player.currentSong {
@@ -20,10 +23,26 @@ struct MiniPlayerBar: View {
                     }
                     .buttonStyle(.borderless)
                     .help(showingNowPlaying ? "Hide Now Playing" : "Show Now Playing")
+                    .contextMenu { coverContextMenu(for: song) }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(song.title).font(.callout).lineLimit(1)
-                        Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Button {
+                            goToAlbum(for: song)
+                        } label: {
+                            Text(song.title).font(.callout).lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(song.albumId == nil ? "" : "Go to Album")
+                        .disabled(song.albumId == nil)
+
+                        Button {
+                            goToArtist(for: song)
+                        } label: {
+                            Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(song.artistId == nil ? "" : "Go to Artist")
+                        .disabled(song.artistId == nil)
                     }
                     .frame(minWidth: 120, maxWidth: 220, alignment: .leading)
                     .layoutPriority(2)
@@ -81,6 +100,65 @@ struct MiniPlayerBar: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
+            .alert("Action Failed", isPresented: Binding(
+                get: { actionError != nil },
+                set: { if !$0 { actionError = nil } }
+            )) {
+                Button("OK", role: .cancel) { actionError = nil }
+            } message: {
+                Text(actionError ?? "")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func coverContextMenu(for song: Song) -> some View {
+        Button("Play Next on Album") { Task { await playNextOnAlbum(for: song) } }
+            .disabled(song.albumId == nil)
+        Divider()
+        Button("Go to Album") { goToAlbum(for: song) }
+            .disabled(song.albumId == nil)
+        Button("Go to Artist") { goToArtist(for: song) }
+            .disabled(song.artistId == nil)
+        Button("Show in Library") {
+            navigation.revealInLibrary(album: albumStub(for: song))
+        }
+    }
+
+    private func goToAlbum(for song: Song) {
+        guard let album = albumStub(for: song) else { return }
+        navigation.requestAlbumNavigation(album)
+    }
+
+    private func goToArtist(for song: Song) {
+        guard let artistId = song.artistId else { return }
+        let artist = Artist(id: artistId, name: song.artist ?? "", coverArt: nil, albumCount: nil)
+        navigation.requestArtistNavigation(artist)
+    }
+
+    private func albumStub(for song: Song) -> Album? {
+        guard let id = song.albumId else { return nil }
+        return Album(
+            id: id,
+            name: song.album ?? "",
+            artist: song.artist,
+            artistId: song.artistId,
+            coverArt: song.coverArt,
+            songCount: nil,
+            duration: nil,
+            year: nil,
+            starred: nil
+        )
+    }
+
+    private func playNextOnAlbum(for song: Song) async {
+        guard let client = auth.client, let albumId = song.albumId else { return }
+        do {
+            let songs = try await library.albumDetail(id: albumId, client: client).song ?? []
+            guard !songs.isEmpty else { return }
+            player.playNext(songs, using: client)
+        } catch {
+            actionError = (error as? SubsonicError)?.message ?? error.localizedDescription
         }
     }
 

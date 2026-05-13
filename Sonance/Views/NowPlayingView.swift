@@ -13,6 +13,17 @@ struct NowPlayingView: View {
     }
 
     var body: some View {
+        contentStack
+            .background(
+                NowPlayingBackdrop(
+                    coverArtID: player.currentSong?.coverArt,
+                    client: auth.client
+                )
+                .ignoresSafeArea()
+            )
+    }
+
+    private var contentStack: some View {
         VStack(spacing: 0) {
             // Top chrome: drag handle + close
             HStack {
@@ -175,6 +186,70 @@ struct NowPlayingView: View {
     }
 }
 
+/// Ambient backdrop: the current cover, scaled up and heavily blurred behind a translucent
+/// material so text on top stays legible against either very light or very dark artwork.
+struct NowPlayingBackdrop: View {
+    let coverArtID: String?
+    let client: SubsonicClient?
+    @State private var image: NSImage?
+    @State private var imageKey: String?
+    @State private var loadingKey: String?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            Group {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .scaleEffect(2.0)
+                        .blur(radius: 60, opaque: true)
+                        .clipped()
+                } else {
+                    Color.black
+                }
+            }
+            .id(imageKey ?? "none")
+            .transition(.opacity)
+        }
+        .overlay(.regularMaterial.opacity(0.6))
+        .animation(.easeInOut(duration: 0.4), value: imageKey)
+        .task(id: cacheKey) { await load() }
+    }
+
+    private var cacheKey: String? {
+        guard let coverArtID, let client else { return nil }
+        return client.coverArtCacheKey(id: coverArtID, size: 600)
+    }
+
+    private func load() async {
+        guard let coverArtID, let client, let key = cacheKey else {
+            // Reset the loading token too — otherwise a previously-started load can complete
+            // later, pass `guard loadingKey == key`, and repaint the backdrop with stale art.
+            loadingKey = nil
+            image = nil
+            imageKey = nil
+            return
+        }
+        loadingKey = key
+        if let immediate = CoverArtCache.shared.memoryImage(forKey: key) {
+            // `.task(id:)` cancels the previous task when `cacheKey` changes, but cancellation
+            // is cooperative and this branch runs without an await. Skip the publish if we've
+            // been cancelled so a stale memory hit from a superseded load doesn't briefly
+            // repaint the backdrop with the wrong cover.
+            guard !Task.isCancelled else { return }
+            image = immediate
+            imageKey = key
+            return
+        }
+        let loaded = await CoverArtCache.shared.image(for: coverArtID, size: 600, client: client)
+        guard !Task.isCancelled, loadingKey == key else { return }
+        image = loaded
+        imageKey = key
+    }
+}
+
 struct QueuePaneView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
@@ -195,6 +270,10 @@ struct QueuePaneView: View {
                     QueueRow(index: idx + 1, song: song, isCurrent: idx == player.queueIndex)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) { player.jumpTo(idx) }
+                        .dropDestination(for: Song.self) { dropped, _ in
+                            insertDropped(dropped, at: idx)
+                            return true
+                        }
                         .contextMenu {
                             Button("Play") { player.jumpTo(idx) }
                             Button("Remove") { player.removeFromQueue(at: idx) }
@@ -213,7 +292,17 @@ struct QueuePaneView: View {
                 }
             }
             .listStyle(.inset)
+            // A drop on the empty area below the rows appends to the queue.
+            .dropDestination(for: Song.self) { dropped, _ in
+                insertDropped(dropped, at: player.queue.count)
+                return true
+            }
         }
+    }
+
+    private func insertDropped(_ songs: [Song], at index: Int) {
+        guard let client = auth.client, !songs.isEmpty else { return }
+        player.insert(songs, at: index, using: client)
     }
 }
 

@@ -7,19 +7,25 @@ struct TrackListView: View {
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
+    /// Positional selection. A list of songs may legitimately contain the same `Song.id` more
+    /// than once (e.g. smart playlists from `.nsp` rules), so keying on song identity would
+    /// coalesce duplicate rows in SwiftUI's diffing.
+    @State private var selectedPosition: Int?
 
     var body: some View {
-        List {
-            ForEach(Array(songs.enumerated()), id: \.element.id) { idx, song in
+        List(selection: $selectedPosition) {
+            ForEach(Array(songs.enumerated()), id: \.offset) { idx, song in
                 TrackRow(
-                    index: idx + 1,
+                    index: trackNumberLabel(song: song, fallback: idx + 1),
                     song: song,
                     isCurrent: player.currentSong?.id == song.id,
                     isFavorite: favorites.isSongFavorite(song.id),
                     onToggleFavorite: { toggleFavorite(song) }
                 )
+                .tag(idx)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onPlay(idx) }
+                .draggable(song)
                 .contextMenu {
                     Button("Play") { onPlay(idx) }
                     Button("Play Next") { playNext(song) }
@@ -32,6 +38,16 @@ struct TrackListView: View {
             }
         }
         .listStyle(.inset)
+        .onKeyPress(.return) {
+            guard let idx = selectedPosition, idx >= 0, idx < songs.count else { return .ignored }
+            onPlay(idx)
+            return .handled
+        }
+    }
+
+    /// Server-reported track number when available, otherwise the row's position in the list.
+    private func trackNumberLabel(song: Song, fallback: Int) -> Int {
+        song.track ?? fallback
     }
 
     private func toggleFavorite(_ song: Song) {

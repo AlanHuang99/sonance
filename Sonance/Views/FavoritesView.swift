@@ -37,8 +37,37 @@ struct FavoritesView: View {
         .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
         .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
         .task { await load() }
-        .onChange(of: favorites.songIDs) { Task { await load(refresh: true) } }
-        .onChange(of: favorites.albumIDs) { Task { await load(refresh: true) } }
+        .onChange(of: favorites.songIDs) { _, newIDs in reconcileSongs(newIDs) }
+        .onChange(of: favorites.albumIDs) { _, newIDs in reconcileAlbums(newIDs) }
+        .onChange(of: favorites.artistIDs) { _, newIDs in reconcileArtists(newIDs) }
+    }
+
+    /// Mirror the truth in `FavoritesStore` against the locally-loaded `Starred2Container`
+    /// without going to the network. New stars added from elsewhere appear on the next manual
+    /// refresh; unstars (which the user can do from any view) remove the entry immediately so
+    /// the Favorites list never shows a song that the store says is no longer starred.
+    private func reconcileSongs(_ ids: Set<String>) {
+        guard let data, let songs = data.song else { return }
+        let filtered = songs.filter { ids.contains($0.id) }
+        if filtered.count != songs.count {
+            self.data = Starred2Container(song: filtered, album: data.album, artist: data.artist)
+        }
+    }
+
+    private func reconcileAlbums(_ ids: Set<String>) {
+        guard let data, let albums = data.album else { return }
+        let filtered = albums.filter { ids.contains($0.id) }
+        if filtered.count != albums.count {
+            self.data = Starred2Container(song: data.song, album: filtered, artist: data.artist)
+        }
+    }
+
+    private func reconcileArtists(_ ids: Set<String>) {
+        guard let data, let artists = data.artist else { return }
+        let filtered = artists.filter { ids.contains($0.id) }
+        if filtered.count != artists.count {
+            self.data = Starred2Container(song: data.song, album: data.album, artist: filtered)
+        }
     }
 
     @ViewBuilder
@@ -135,22 +164,11 @@ struct FavoritesView: View {
         defer { isLoading = false }
         do {
             data = try await library.starred(client: client, refresh: refresh)
-            // Keep FavoritesStore in sync with the freshly-fetched truth
-            favoritesSync(data)
             loadError = nil
         } catch let error as SubsonicError {
             loadError = error.message
         } catch {
             loadError = error.localizedDescription
         }
-    }
-
-    private func favoritesSync(_ container: Starred2Container?) {
-        // Re-sync the IDs based on what came back
-        // (toggleSong already updated optimistically; this catches drift)
-        // Use direct property writes via dispatch back through a method.
-        // FavoritesStore exposes only mutations; adding a setter is overkill.
-        // For now, individual toggles already update IDs; refresh on re-login covers initial state.
-        _ = container
     }
 }

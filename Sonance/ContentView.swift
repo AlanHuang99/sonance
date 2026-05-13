@@ -14,7 +14,14 @@ struct ContentView: View {
                     LibraryView()
                         .id(auth.activeAccountID ?? "signed-in")
                         .safeAreaInset(edge: .bottom, spacing: 0) {
-                            MiniPlayerBar(showingNowPlaying: $showingNowPlaying)
+                            // The mini-player slides out of the safe-area when the Now Playing
+                            // panel is up — they expose the same transport, so showing both
+                            // would be redundant. The transport is recovered the moment the
+                            // user closes Now Playing.
+                            if !showingNowPlaying {
+                                MiniPlayerBar(showingNowPlaying: $showingNowPlaying)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
                         }
                         .task {
                             if let client = auth.client {
@@ -24,7 +31,6 @@ struct ContentView: View {
 
                     if showingNowPlaying {
                         NowPlayingView(onDismiss: dismissNowPlaying)
-                            .background(.regularMaterial)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .zIndex(1)
                     }

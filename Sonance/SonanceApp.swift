@@ -7,6 +7,7 @@ struct SonanceApp: App {
     @StateObject private var player = Player()
     @StateObject private var favorites = FavoritesStore()
     @StateObject private var library = LibraryStore()
+    @StateObject private var navigation = NavigationCoordinator()
     @AppStorage("sonance.showMenuBarExtra") private var showMenuBarExtra: Bool = true
 
     var body: some Scene {
@@ -16,6 +17,7 @@ struct SonanceApp: App {
                 .environmentObject(player)
                 .environmentObject(favorites)
                 .environmentObject(library)
+                .environmentObject(navigation)
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     appDelegate.attach(auth: auth, player: player, favorites: favorites)
@@ -27,6 +29,45 @@ struct SonanceApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            // Add Find alongside the system text-editing items, not in place of them.
+            // `replacing:` would wipe out any default Find/Find-Next slots SwiftUI may install;
+            // `after:` injects our shortcut while preserving anything the platform provides.
+            // Standard Edit actions (cut/copy/paste/undo/select-all) live in the separate
+            // `.pasteboard` and `.undoRedo` groups and are unaffected either way.
+            CommandGroup(after: .textEditing) {
+                Button("Find") { navigation.focusSearch() }
+                    .keyboardShortcut("f", modifiers: [.command])
+            }
+            CommandMenu("Go") {
+                Button("Albums") { navigation.switch_(to: .albums) }
+                    .keyboardShortcut("1", modifiers: [.command])
+                Button("Artists") { navigation.switch_(to: .artists) }
+                    .keyboardShortcut("2", modifiers: [.command])
+                Button("Songs") { navigation.switch_(to: .songs) }
+                    .keyboardShortcut("3", modifiers: [.command])
+                Button("Playlists") { navigation.switch_(to: .playlists) }
+                    .keyboardShortcut("4", modifiers: [.command])
+                Button("Favorites") { navigation.switch_(to: .favorites) }
+                    .keyboardShortcut("5", modifiers: [.command])
+                Divider()
+                Button("Go to Current Album") {
+                    guard let song = player.currentSong, let id = song.albumId else { return }
+                    let album = Album(
+                        id: id,
+                        name: song.album ?? "",
+                        artist: song.artist,
+                        artistId: nil,
+                        coverArt: song.coverArt,
+                        songCount: nil,
+                        duration: nil,
+                        year: nil,
+                        starred: nil
+                    )
+                    navigation.requestAlbumNavigation(album)
+                }
+                .keyboardShortcut("l", modifiers: [.command])
+                .disabled(player.currentSong?.albumId == nil)
+            }
             CommandMenu("Playback") {
                 Button(player.isPlaying ? "Pause" : "Play") {
                     player.togglePlayPause()
