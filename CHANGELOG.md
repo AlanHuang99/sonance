@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-05-13
+
+### Added
+
+- Artist and album names in track rows, the album-detail header, the Now
+  Playing pane, and the mini-player are clickable links to the corresponding
+  detail page. A hover underline marks the affordance. Queue rows gained
+  "Go to Album" / "Go to Artist" in their context menu.
+- Discover tab replaces the old Songs tab, with a Songs / Albums / Artists /
+  Playlists picker. Random songs and albums come from `getRandomSongs` and
+  `getAlbumList2(type: random)`; random artists and playlists shuffle the
+  cached index.
+- Genres tab backed by `getGenres`, drilling into albums via
+  `getAlbumList2(type: byGenre)`.
+- Artist detail page enriched with the artist image, biography, and similar
+  artists from `getArtistInfo2`, plus Play All / Shuffle All over the whole
+  discography and a Star / Unstar toolbar button.
+- Multi-disc album section headers show per-disc track count and duration.
+- Search gained an All / Artists / Albums / Songs scope picker that filters
+  the visible result sections in place.
+- Albums grid auto-scrolls keyboard-selected tiles into view.
+- Repeat and Shuffle now publish to `MPRemoteCommandCenter`, so the system's
+  three-state repeat and shuffle controls reflect and steer the player.
+- Network diagnostics counters are exposed as a collapsible panel in the
+  Accounts section.
+
+### Changed
+
+- Sidebar order is now Albums, Artists, Discover, Genres, Playlists,
+  Favorites. Keyboard shortcuts ⌘1..⌘6 follow the new order.
+
 ## [0.2.0] — 2026-05-13
 
 ### Added
@@ -56,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
+[0.3.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.3.0
 [0.2.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.2.0
 [0.1.2]: https://github.com/AlanHuang99/sonance/releases/tag/v0.1.2
 [0.1.1]: https://github.com/AlanHuang99/sonance/releases/tag/v0.1.1
