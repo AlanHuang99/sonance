@@ -5,6 +5,7 @@ struct AlbumDetailView: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var favorites: FavoritesStore
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var navigation: NavigationCoordinator
     let album: Album
     @State private var detail: AlbumDetail?
     @State private var loadError: String?
@@ -38,7 +39,13 @@ struct AlbumDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(album.name).font(.title).bold()
                 if let artist = album.artist {
-                    Text(artist).font(.title3).foregroundStyle(.secondary)
+                    NavigableLabel(
+                        text: artist,
+                        isEnabled: album.artistId != nil,
+                        font: .title3,
+                        tooltip: album.artistId == nil ? nil : "Go to Artist",
+                        action: goToArtist
+                    )
                 }
                 HStack(spacing: 8) {
                     if let year = album.year { Text(String(year)).font(.callout) }
@@ -178,6 +185,11 @@ struct AlbumDetailView: View {
         guard let client = auth.client else { return }
         Task { await favorites.toggleAlbum(album.id, client: client) }
     }
+
+    private func goToArtist() {
+        guard let artistId = album.artistId else { return }
+        navigation.requestArtistNavigation(Artist(id: artistId, name: album.artist ?? "", coverArt: nil, albumCount: nil))
+    }
 }
 
 /// Sectioned list of tracks for multi-disc albums. Reuses `TrackRow` for row visuals and
@@ -220,9 +232,21 @@ struct MultiDiscTrackList: View {
                         }
                     }
                 } header: {
-                    Text("Disc \(disc)")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Text("Disc \(disc)")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text("•").foregroundStyle(.secondary)
+                        Text("\(songsInDisc.count) track\(songsInDisc.count == 1 ? "" : "s")")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if let dur = discDurationLabel(songsInDisc) {
+                            Text("•").foregroundStyle(.secondary)
+                            Text(dur)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
@@ -248,5 +272,15 @@ struct MultiDiscTrackList: View {
     private func addToQueue(_ song: Song) {
         guard let client = auth.client else { return }
         player.appendToQueue([song], using: client)
+    }
+
+    private func discDurationLabel(_ songs: [Song]) -> String? {
+        let seconds = songs.compactMap(\.duration).reduce(0, +)
+        guard seconds > 0 else { return nil }
+        let totalMinutes = (seconds + 30) / 60
+        if totalMinutes < 60 { return "\(totalMinutes) min" }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return minutes == 0 ? "\(hours) hr" : "\(hours) hr \(minutes) min"
     }
 }

@@ -122,6 +122,7 @@ final class Player: ObservableObject {
         avPlayer.volume = volume
         isPlaying = false  // user must press play to actually start
         syncNowPlaying()
+        NowPlayingCenter.shared.syncRepeatShuffle()
     }
 
     private func saveState() {
@@ -316,12 +317,14 @@ final class Player: ObservableObject {
         }
         clearPreload()
         saveState()
+        NowPlayingCenter.shared.syncRepeatShuffle()
     }
 
     func toggleShuffle() {
         PlaybackQueueLogic.toggleShuffle(queue: &queue, queueIndex: &queueIndex, isShuffled: &isShuffled, unshuffledQueue: &unshuffledQueue, currentSong: currentSong)
         clearPreload()
         saveState()
+        NowPlayingCenter.shared.syncRepeatShuffle()
     }
 
     // MARK: - Internal

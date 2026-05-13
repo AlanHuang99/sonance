@@ -41,32 +41,44 @@ struct AlbumsView: View {
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
 
     var body: some View {
-        ScrollView {
-            if isLoadingInitial && albums.isEmpty {
-                ProgressView().padding(40)
-            } else if let err = loadError, albums.isEmpty {
-                Text(err).foregroundStyle(.red).padding(40)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    sortMenu
+        ScrollViewReader { proxy in
+            ScrollView {
+                if isLoadingInitial && albums.isEmpty {
+                    ProgressView().padding(40)
+                } else if let err = loadError, albums.isEmpty {
+                    Text(err).foregroundStyle(.red).padding(40)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sortMenu
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                        GeometryReader { geom in
+                            Color.clear
+                                .onAppear { updateColumnCount(width: geom.size.width) }
+                                .onChange(of: geom.size.width) { _, w in updateColumnCount(width: w) }
+                        }
+                        .frame(height: 0)
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            ForEach(Array(albums.enumerated()), id: \.element.id) { idx, album in
+                                AlbumGridItem(album: album, isSelected: selectedIndex == idx)
+                                    .id(album.id)
+                            }
+                            if hasMore && !albums.isEmpty {
+                                loadMoreSentinel
+                            }
+                        }
                         .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                    GeometryReader { geom in
-                        Color.clear
-                            .onAppear { updateColumnCount(width: geom.size.width) }
-                            .onChange(of: geom.size.width) { _, w in updateColumnCount(width: w) }
+                        .padding(.bottom, 20)
                     }
-                    .frame(height: 0)
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(Array(albums.enumerated()), id: \.element.id) { idx, album in
-                            AlbumGridItem(album: album, isSelected: selectedIndex == idx)
-                        }
-                        if hasMore && !albums.isEmpty {
-                            loadMoreSentinel
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
+                }
+            }
+            .onChange(of: selectedIndex) { _, newIndex in
+                // Keyboard nav can jump the selection off-screen; scroll the grid so the
+                // selection ring stays visible. `.center` keeps context above and below the
+                // chosen tile rather than parking it at the edge of the viewport.
+                guard let i = newIndex, i >= 0, i < albums.count else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(albums[i].id, anchor: .center)
                 }
             }
         }

@@ -133,6 +133,37 @@ struct Starred2Response: Decodable {
     let starred2: Starred2Container?
 }
 
+struct GenresResponse: Decodable {
+    let genres: GenresContainer?
+}
+
+struct GenresContainer: Decodable {
+    let genre: [Genre]?
+}
+
+struct Genre: Decodable, Identifiable, Hashable {
+    let value: String
+    let songCount: Int?
+    let albumCount: Int?
+
+    // Genre names are unique within a server's index, so use the name as a stable id.
+    var id: String { value }
+}
+
+struct ArtistInfoResponse: Decodable {
+    let artistInfo2: ArtistInfo?
+}
+
+struct ArtistInfo: Decodable, Hashable {
+    let biography: String?
+    let musicBrainzId: String?
+    let lastFmUrl: String?
+    let smallImageUrl: String?
+    let mediumImageUrl: String?
+    let largeImageUrl: String?
+    let similarArtist: [Artist]?
+}
+
 struct Starred2Container: Decodable {
     let song: [Song]?
     let album: [Album]?

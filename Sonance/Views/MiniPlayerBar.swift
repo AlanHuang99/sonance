@@ -26,23 +26,22 @@ struct MiniPlayerBar: View {
                     .contextMenu { coverContextMenu(for: song) }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Button {
-                            goToAlbum(for: song)
-                        } label: {
-                            Text(song.title).font(.callout).lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(song.albumId == nil ? "" : "Go to Album")
-                        .disabled(song.albumId == nil)
-
-                        Button {
-                            goToArtist(for: song)
-                        } label: {
-                            Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(song.artistId == nil ? "" : "Go to Artist")
-                        .disabled(song.artistId == nil)
+                        HoverLinkText(
+                            text: song.title,
+                            font: .callout,
+                            color: .primary,
+                            isEnabled: song.albumId != nil,
+                            tooltip: song.albumId == nil ? nil : "Go to Album",
+                            action: { goToAlbum(for: song) }
+                        )
+                        HoverLinkText(
+                            text: song.artist ?? "",
+                            font: .caption,
+                            color: .secondary,
+                            isEnabled: song.artistId != nil,
+                            tooltip: song.artistId == nil ? nil : "Go to Artist",
+                            action: { goToArtist(for: song) }
+                        )
                     }
                     .frame(minWidth: 120, maxWidth: 220, alignment: .leading)
                     .layoutPriority(2)
@@ -199,5 +198,36 @@ struct MiniPlayerBar: View {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+}
+
+/// Mini-player title/artist link. Underlines on hover so the click affordance is discoverable
+/// (the prior buttons rendered identically to plain text — see TrackRow's NavigableLabel for
+/// the same pattern; this variant lives outside a `List` so it uses a real `Button` for keyboard
+/// + accessibility wiring).
+struct HoverLinkText: View {
+    let text: String
+    let font: Font
+    let color: Color
+    let isEnabled: Bool
+    let tooltip: String?
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(font)
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .underline(isEnabled && isHovered)
+        }
+        .buttonStyle(.plain)
+        .help(tooltip ?? "")
+        .disabled(!isEnabled)
+        .onHover { hovering in
+            guard isEnabled else { return }
+            isHovered = hovering
+        }
     }
 }

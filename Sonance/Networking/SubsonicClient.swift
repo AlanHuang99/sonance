@@ -56,6 +56,26 @@ final class SubsonicClient: @unchecked Sendable {
         return resp.randomSongs?.song ?? []
     }
 
+    func genres() async throws -> [Genre] {
+        let resp: GenresResponse = try await get("getGenres", params: [:])
+        return resp.genres?.genre ?? []
+    }
+
+    func albumsByGenre(_ genre: String, size: Int = 100, offset: Int = 0) async throws -> [Album] {
+        let resp: AlbumListResponse = try await get("getAlbumList2", params: [
+            "type": "byGenre",
+            "genre": genre,
+            "size": String(size),
+            "offset": String(offset),
+        ])
+        return resp.albumList2?.album ?? []
+    }
+
+    func artistInfo(id: String) async throws -> ArtistInfo? {
+        let resp: ArtistInfoResponse = try await get("getArtistInfo2", params: ["id": id])
+        return resp.artistInfo2
+    }
+
     func starred() async throws -> Starred2Container {
         let resp: Starred2Response = try await get("getStarred2", params: [:])
         return resp.starred2 ?? Starred2Container(song: [], album: [], artist: [])

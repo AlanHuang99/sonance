@@ -11,16 +11,29 @@ struct SearchView: View {
     @State private var isLoading = false
     @State private var debounceTask: Task<Void, Never>?
     @State private var searchGeneration = UUID()
+    @State private var scope: Scope = .all
     @FocusState private var searchFieldFocused: Bool
+
+    enum Scope: String, CaseIterable, Identifiable {
+        case all = "All", artists = "Artists", albums = "Albums", songs = "Songs"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search artists, albums, songs", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($searchFieldFocused)
-                    .onChange(of: query) { _, newValue in scheduleSearch(newValue) }
+            VStack(spacing: 10) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search artists, albums, songs", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($searchFieldFocused)
+                        .onChange(of: query) { _, newValue in scheduleSearch(newValue) }
+                }
+                Picker("", selection: $scope) {
+                    ForEach(Scope.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 420)
             }
             .padding(20)
             Divider()
@@ -50,9 +63,12 @@ struct SearchView: View {
         } else if let r = result {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if let artists = r.artist, !artists.isEmpty {
-                        sectionHeader("Artists", count: artists.count)
-                        ForEach(artists) { artist in
+                    let visibleArtists = (scope == .all || scope == .artists) ? (r.artist ?? []) : []
+                    let visibleAlbums = (scope == .all || scope == .albums) ? (r.album ?? []) : []
+                    let visibleSongs = (scope == .all || scope == .songs) ? (r.song ?? []) : []
+                    if !visibleArtists.isEmpty {
+                        sectionHeader("Artists", count: visibleArtists.count)
+                        ForEach(visibleArtists) { artist in
                             NavigationLink(value: artist) {
                                 ArtistRow(artist: artist, client: auth.client)
                                     .padding(.horizontal, 20)
@@ -61,26 +77,26 @@ struct SearchView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    if let albums = r.album, !albums.isEmpty {
-                        sectionHeader("Albums", count: albums.count)
+                    if !visibleAlbums.isEmpty {
+                        sectionHeader("Albums", count: visibleAlbums.count)
                         let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
                         LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(albums) { album in
+                            ForEach(visibleAlbums) { album in
                                 AlbumGridItem(album: album)
                             }
                         }
                         .padding(.horizontal, 20)
                     }
-                    if let songs = r.song, !songs.isEmpty {
-                        sectionHeader("Songs", count: songs.count)
-                        TrackListView(songs: songs, onPlay: { idx in
+                    if !visibleSongs.isEmpty {
+                        sectionHeader("Songs", count: visibleSongs.count)
+                        TrackListView(songs: visibleSongs, onPlay: { idx in
                             if let client = auth.client {
-                                player.play(songs, startAt: idx, using: client)
+                                player.play(visibleSongs, startAt: idx, using: client)
                             }
                         })
-                        .frame(minHeight: CGFloat(min(songs.count, 12)) * 50)
+                        .frame(minHeight: CGFloat(min(visibleSongs.count, 12)) * 50)
                     }
-                    if (r.artist?.isEmpty ?? true) && (r.album?.isEmpty ?? true) && (r.song?.isEmpty ?? true) {
+                    if visibleArtists.isEmpty && visibleAlbums.isEmpty && visibleSongs.isEmpty {
                         Text("No results for \"\(query)\"").foregroundStyle(.secondary).padding(20)
                     }
                 }

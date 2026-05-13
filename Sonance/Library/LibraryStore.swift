@@ -29,6 +29,15 @@ final class LibraryStore: ObservableObject {
     private var searchResults: [String: SearchResult] = [:]
     private var searchTasks: [String: Task<SearchResult, Error>] = [:]
 
+    private var genresByAccount: [String: [Genre]] = [:]
+    private var genresTasks: [String: Task<[Genre], Error>] = [:]
+
+    private var artistInfos: [String: ArtistInfo] = [:]
+    private var artistInfoTasks: [String: Task<ArtistInfo?, Error>] = [:]
+
+    private var albumsByGenre: [String: [Album]] = [:]
+    private var albumsByGenreTasks: [String: Task<[Album], Error>] = [:]
+
     func clear() {
         albumListTasks.values.forEach { $0.cancel() }
         artistTasks.values.forEach { $0.cancel() }
@@ -39,6 +48,9 @@ final class LibraryStore: ObservableObject {
         playlistTasks.values.forEach { $0.cancel() }
         playlistDetailTasks.values.forEach { $0.cancel() }
         searchTasks.values.forEach { $0.cancel() }
+        genresTasks.values.forEach { $0.cancel() }
+        artistInfoTasks.values.forEach { $0.cancel() }
+        albumsByGenreTasks.values.forEach { $0.cancel() }
         albumListTasks.removeAll()
         artistTasks.removeAll()
         albumDetailTasks.removeAll()
@@ -48,6 +60,9 @@ final class LibraryStore: ObservableObject {
         playlistTasks.removeAll()
         playlistDetailTasks.removeAll()
         searchTasks.removeAll()
+        genresTasks.removeAll()
+        artistInfoTasks.removeAll()
+        albumsByGenreTasks.removeAll()
         albumLists.removeAll()
         artistsByAccount.removeAll()
         albumDetails.removeAll()
@@ -57,6 +72,9 @@ final class LibraryStore: ObservableObject {
         playlistsByAccount.removeAll()
         playlistDetails.removeAll()
         searchResults.removeAll()
+        genresByAccount.removeAll()
+        artistInfos.removeAll()
+        albumsByGenre.removeAll()
     }
 
     func albumList(sort: AlbumSort, size: Int, client: SubsonicClient, refresh: Bool = false) async throws -> [Album] {
@@ -191,6 +209,51 @@ final class LibraryStore: ObservableObject {
 
         let value = try await task.value
         searchResults[key] = value
+        return value
+    }
+
+    func genres(client: SubsonicClient, refresh: Bool = false) async throws -> [Genre] {
+        let key = "\(account(client))|genres"
+        if !refresh, let cached = genresByAccount[key] { return cached }
+        if !refresh, let task = genresTasks[key] { return try await task.value }
+
+        let task = Task<[Genre], Error> {
+            try await client.genres()
+                .sorted { $0.value.localizedStandardCompare($1.value) == .orderedAscending }
+        }
+        genresTasks[key] = task
+        defer { genresTasks[key] = nil }
+
+        let value = try await task.value
+        genresByAccount[key] = value
+        return value
+    }
+
+    func albumsByGenre(_ genre: String, client: SubsonicClient, size: Int = 100, refresh: Bool = false) async throws -> [Album] {
+        let key = "\(account(client))|byGenre|\(genre)|\(size)"
+        if !refresh, let cached = albumsByGenre[key] { return cached }
+        if !refresh, let task = albumsByGenreTasks[key] { return try await task.value }
+
+        let task = Task<[Album], Error> { try await client.albumsByGenre(genre, size: size) }
+        albumsByGenreTasks[key] = task
+        defer { albumsByGenreTasks[key] = nil }
+
+        let value = try await task.value
+        albumsByGenre[key] = value
+        return value
+    }
+
+    func artistInfo(id: String, client: SubsonicClient, refresh: Bool = false) async throws -> ArtistInfo? {
+        let key = "\(account(client))|artistInfo|\(id)"
+        if !refresh, let cached = artistInfos[key] { return cached }
+        if !refresh, let task = artistInfoTasks[key] { return try await task.value }
+
+        let task = Task<ArtistInfo?, Error> { try await client.artistInfo(id: id) }
+        artistInfoTasks[key] = task
+        defer { artistInfoTasks[key] = nil }
+
+        let value = try await task.value
+        if let value { artistInfos[key] = value }
         return value
     }
 

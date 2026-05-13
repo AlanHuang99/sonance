@@ -3,7 +3,8 @@ import SwiftUI
 enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
     case albums = "Albums"
     case artists = "Artists"
-    case songs = "Songs"
+    case discover = "Discover"
+    case genres = "Genres"
     case playlists = "Playlists"
     case favorites = "Favorites"
     case search = "Search"
@@ -15,7 +16,8 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .albums: return "square.stack"
         case .artists: return "person.2"
-        case .songs: return "music.note"
+        case .discover: return "shuffle"
+        case .genres: return "guitars"
         case .playlists: return "music.note.list"
         case .favorites: return "heart.fill"
         case .search: return "magnifyingglass"
@@ -102,7 +104,8 @@ struct LibraryView: View {
                     switch navigation.selectedSection {
                     case .albums: AlbumsView()
                     case .artists: ArtistsView()
-                    case .songs: SongsView()
+                    case .discover: DiscoverView()
+                    case .genres: GenresView()
                     case .playlists: PlaylistsView()
                     case .favorites: FavoritesView()
                     case .search: SearchView()
