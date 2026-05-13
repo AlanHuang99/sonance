@@ -449,7 +449,8 @@ struct EditablePlaylistTrackList: View {
                     song: song,
                     isCurrent: player.currentSong?.id == song.id,
                     isFavorite: favorites.isSongFavorite(song.id),
-                    onToggleFavorite: { toggleFavorite(song) }
+                    onToggleFavorite: { toggleFavorite(song) },
+                    showsCover: true
                 )
                 .tag(idx)
                 .contentShape(Rectangle())

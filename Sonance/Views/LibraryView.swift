@@ -32,13 +32,28 @@ struct LibraryView: View {
     @EnvironmentObject var favorites: FavoritesStore
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var navigation: NavigationCoordinator
-    @State private var detailPath = NavigationPath()
+
+    // Each section owns its own NavigationStack path. One global `NavigationStack` whose root
+    // view *type* swaps (the prior `Group { switch ... }` design) loses pushes during the
+    // swap: SwiftUI re-evaluates destination registrations against the new root identity and
+    // silently reverts any path entry whose destination isn't resolved in that frame. Giving
+    // every section its own stack means each stack's root view type is stable, and the only
+    // moving piece during a cross-section jump is *which stack the user is looking at* — the
+    // target stack's path is already prepared before the visible section swaps in.
+    @State private var albumsPath = NavigationPath()
+    @State private var artistsPath = NavigationPath()
+    @State private var discoverPath = NavigationPath()
+    @State private var genresPath = NavigationPath()
+    @State private var playlistsPath = NavigationPath()
+    @State private var favoritesPath = NavigationPath()
+    @State private var searchPath = NavigationPath()
+    @State private var accountsPath = NavigationPath()
 
     private var selectionBinding: Binding<LibrarySection?> {
         // Sidebar selection: route writes through `switch_(to:)` so a user-initiated section
-        // change also bumps `sectionResetSignal` and resets the detail path. Direct writes to
-        // `selectedSection` (from `requestAlbumNavigation` et al) skip the reset signal so the
-        // just-pushed destination survives.
+        // change also bumps `sectionResetSignal` and resets the target section's stack.
+        // Cross-link writes (`requestAlbumNavigation` / `requestArtistNavigation`) use the
+        // `navigationRequest` channel and update the destination section's path directly.
         Binding(
             get: { navigation.selectedSection },
             set: { newValue in
@@ -99,27 +114,7 @@ struct LibraryView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
-            NavigationStack(path: $detailPath) {
-                Group {
-                    switch navigation.selectedSection {
-                    case .albums: AlbumsView()
-                    case .artists: ArtistsView()
-                    case .discover: DiscoverView()
-                    case .genres: GenresView()
-                    case .playlists: PlaylistsView()
-                    case .favorites: FavoritesView()
-                    case .search: SearchView()
-                    case .accounts: AccountManagementView()
-                    case .none: PlaceholderView(title: "Select a section")
-                    }
-                }
-                // Declare both navigation destinations at the stack root so any view in the
-                // detail panel — including the mini-player context menu's "Go to Album/Artist"
-                // pushes — can land on the right destination regardless of which section is
-                // currently active.
-                .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-                .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
-            }
+            detailContent
         }
         .task {
             if let client = auth.client {
@@ -127,23 +122,98 @@ struct LibraryView: View {
             }
         }
         .onChange(of: navigation.sectionResetSignal) { _, _ in
-            // A user-initiated section switch (sidebar click, ⌘1..⌘5, ⌘F) resets the detail
-            // stack so the new section opens at its root. Programmatic section changes from
-            // `requestAlbumNavigation` / `requestArtistNavigation` do *not* bump this signal,
-            // so the just-pushed destination survives — fixing the race the previous
-            // `onChange(of: selectedSection)` had with the pending-nav handler.
-            detailPath = NavigationPath()
+            // A user-initiated section switch (sidebar click, ⌘1..⌘6, ⌘F) lands at the new
+            // section's root. Only reset the *target* section's path — leaving the others
+            // alone preserves their state in case the user comes back via sidebar later.
+            resetPath(for: navigation.selectedSection)
         }
-        .onChange(of: navigation.pendingAlbumNavigation) { _, album in
-            guard let album else { return }
-            detailPath.append(album)
-            navigation.pendingAlbumNavigation = nil
+        .onChange(of: navigation.navigationRequest) { _, request in
+            guard let request else { return }
+            handleNavigationRequest(request)
+            navigation.navigationRequest = nil
         }
-        .onChange(of: navigation.pendingArtistNavigation) { _, artist in
-            guard let artist else { return }
-            detailPath.append(artist)
-            navigation.pendingArtistNavigation = nil
+    }
+
+    /// Pick the NavigationStack for the currently-selected section. Each stack's root view
+    /// has a stable type, so SwiftUI doesn't drop pushed destinations the way it did when a
+    /// single stack's root view alternated between section types.
+    @ViewBuilder
+    private var detailContent: some View {
+        switch navigation.selectedSection {
+        case .albums:
+            NavigationStack(path: $albumsPath) {
+                AlbumsView().attachLibraryNavigationDestinations()
+            }
+        case .artists:
+            NavigationStack(path: $artistsPath) {
+                ArtistsView().attachLibraryNavigationDestinations()
+            }
+        case .discover:
+            NavigationStack(path: $discoverPath) {
+                DiscoverView().attachLibraryNavigationDestinations()
+            }
+        case .genres:
+            NavigationStack(path: $genresPath) {
+                GenresView().attachLibraryNavigationDestinations()
+            }
+        case .playlists:
+            NavigationStack(path: $playlistsPath) {
+                PlaylistsView().attachLibraryNavigationDestinations()
+            }
+        case .favorites:
+            NavigationStack(path: $favoritesPath) {
+                FavoritesView().attachLibraryNavigationDestinations()
+            }
+        case .search:
+            NavigationStack(path: $searchPath) {
+                SearchView().attachLibraryNavigationDestinations()
+            }
+        case .accounts:
+            NavigationStack(path: $accountsPath) {
+                AccountManagementView().attachLibraryNavigationDestinations()
+            }
+        case .none:
+            PlaceholderView(title: "Select a section")
         }
+    }
+
+    private func handleNavigationRequest(_ request: NavigationCoordinator.NavigationRequest) {
+        // Order matters: prepare the target section's path BEFORE flipping selectedSection.
+        // When SwiftUI swaps in the target section's NavigationStack, its path already
+        // contains the destination and the push renders on the first frame — there's no
+        // "section flip" frame where the stack briefly has the wrong root for its path.
+        let decision = NavigationRequestRouting.decide(
+            request: request,
+            currentSection: navigation.selectedSection
+        )
+        mutatePath(for: decision.targetSection) { path in
+            if decision.crossesSection { path = NavigationPath() }
+            switch request {
+            case .album(let a): path.append(a)
+            case .artist(let a): path.append(a)
+            }
+        }
+        if decision.crossesSection {
+            navigation.selectedSection = decision.targetSection
+        }
+    }
+
+    private func mutatePath(for section: LibrarySection, _ mutate: (inout NavigationPath) -> Void) {
+        switch section {
+        case .albums: mutate(&albumsPath)
+        case .artists: mutate(&artistsPath)
+        case .discover: mutate(&discoverPath)
+        case .genres: mutate(&genresPath)
+        case .playlists: mutate(&playlistsPath)
+        case .favorites: mutate(&favoritesPath)
+        case .search: mutate(&searchPath)
+        case .accounts: mutate(&accountsPath)
+        }
+    }
+
+    private func resetPath(for section: LibrarySection?) {
+        guard let section else { return }
+        mutatePath(for: section) { $0 = NavigationPath() }
     }
 
     private func switchToAccount(_ id: ServerAccount.ID) {
@@ -151,6 +221,22 @@ struct LibraryView: View {
         favorites.clear()
         library.clear()
         auth.switchToAccount(id: id)
+    }
+}
+
+private extension View {
+    /// Every section's NavigationStack registers the same set of destinations so a value
+    /// pushed onto any stack resolves the same way. Cross-link pushes go through
+    /// `handleNavigationRequest` which routes the destination into the target section's
+    /// path, so in practice each stack only sees destinations relevant to its own pushes —
+    /// but declaring the full set is the simplest contract and keeps NavigationLink(value:)
+    /// usage uniform across views.
+    func attachLibraryNavigationDestinations() -> some View {
+        self
+            .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
+            .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+            .navigationDestination(for: Genre.self) { GenreDetailView(genre: $0) }
+            .navigationDestination(for: Playlist.self) { PlaylistDetailView(summary: $0) }
     }
 }
 

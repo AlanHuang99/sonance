@@ -3,6 +3,11 @@ import SwiftUI
 struct TrackListView: View {
     let songs: [Song]
     let onPlay: (Int) -> Void
+    /// Render a small album cover thumbnail before the title on each row. Default on for
+    /// mixed-source lists (search, favorites, discover, playlists) where covers vary per
+    /// row and aid recognition. Album-detail call sites opt out (`showsCovers: false`)
+    /// because every row would carry the same album thumbnail.
+    var showsCovers: Bool = true
 
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
@@ -21,7 +26,8 @@ struct TrackListView: View {
                     song: song,
                     isCurrent: player.currentSong?.id == song.id,
                     isFavorite: favorites.isSongFavorite(song.id),
-                    onToggleFavorite: { toggleFavorite(song) }
+                    onToggleFavorite: { toggleFavorite(song) },
+                    showsCover: showsCovers
                 )
                 .tag(idx)
                 .contentShape(Rectangle())
@@ -88,23 +94,18 @@ struct TrackRow: View {
     let isCurrent: Bool
     let isFavorite: Bool
     let onToggleFavorite: () -> Void
+    /// See `TrackListView.showsCovers` for the rationale. When false the lead column shows
+    /// the track number / play indicator (album-detail look). When true it shows a 36×36
+    /// thumbnail with the play indicator overlaid on hover or while playing.
+    var showsCover: Bool = false
+
+    @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var navigation: NavigationCoordinator
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Group {
-                if isCurrent {
-                    Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
-                } else if isHovered {
-                    Image(systemName: "play.fill").foregroundStyle(.secondary)
-                } else {
-                    Text("\(index)").foregroundStyle(.secondary)
-                }
-            }
-            .font(.callout)
-            .monospacedDigit()
-            .frame(width: 28, alignment: .trailing)
+            leadIndicator
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)
@@ -146,6 +147,44 @@ struct TrackRow: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+    }
+
+    /// Lead column: either a 36-pt cover thumbnail with a play-state overlay, or the slim
+    /// track-number / play-indicator column the album-detail look uses. Switching at this
+    /// boundary keeps the rest of the row layout identical between modes.
+    @ViewBuilder
+    private var leadIndicator: some View {
+        if showsCover {
+            ZStack {
+                CoverArtImage(coverArtID: song.coverArt, size: 96, client: auth.client, corner: 4)
+                    .frame(width: 36, height: 36)
+                if isCurrent || isHovered {
+                    // Darken the cover so the white indicator glyph stays legible against
+                    // bright artwork; current-track gets a slightly deeper veil so the
+                    // accent color of the title is the dominant cue.
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(.black.opacity(isCurrent ? 0.55 : 0.45))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: isCurrent ? "speaker.wave.2.fill" : "play.fill")
+                        .foregroundStyle(.white)
+                        .font(.callout)
+                }
+            }
+            .frame(width: 36, height: 36)
+        } else {
+            Group {
+                if isCurrent {
+                    Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
+                } else if isHovered {
+                    Image(systemName: "play.fill").foregroundStyle(.secondary)
+                } else {
+                    Text("\(index)").foregroundStyle(.secondary)
+                }
+            }
+            .font(.callout)
+            .monospacedDigit()
+            .frame(width: 28, alignment: .trailing)
+        }
     }
 
     private func formatDuration(_ seconds: Int) -> String {

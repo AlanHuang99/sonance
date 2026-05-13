@@ -22,7 +22,6 @@ struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
         .task { await load() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -121,11 +120,15 @@ struct ArtistDetailView: View {
                 if let err = discographyError {
                     Text(err).font(.caption).foregroundStyle(.red).padding(.horizontal, 20)
                 }
-                Color.clear.frame(height: 20)
             }
         }
+        // Reserve room at the bottom of the scroll content for the mini-player bar so the
+        // last items (similar-artists names in particular) are not hidden underneath when
+        // scrolled all the way down. The `safeAreaInset` set up by ContentView doesn't fully
+        // propagate through NavigationSplitView's detail column to inner ScrollViews on
+        // macOS 14, so we add the inset explicitly here.
+        .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
         .navigationTitle(artist.name)
-        .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
         .task { await load() }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {

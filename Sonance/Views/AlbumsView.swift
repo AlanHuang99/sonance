@@ -72,6 +72,7 @@ struct AlbumsView: View {
                     }
                 }
             }
+            .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
             .onChange(of: selectedIndex) { _, newIndex in
                 // Keyboard nav can jump the selection off-screen; scroll the grid so the
                 // selection ring stays visible. `.center` keeps context above and below the
@@ -95,9 +96,6 @@ struct AlbumsView: View {
                 }
                 .disabled(isLoadingInitial)
             }
-        }
-        .navigationDestination(for: Album.self) { album in
-            AlbumDetailView(album: album)
         }
         .task { await reload() }
         .onChange(of: sort) { _, _ in Task { await reload() } }

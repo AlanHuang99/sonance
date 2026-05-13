@@ -82,6 +82,7 @@ struct DiscoverView: View {
                     }
                     .padding(20)
                 }
+                .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
             case .artists:
                 List(artists) { artist in
                     NavigationLink(value: artist) {
@@ -93,9 +94,6 @@ struct DiscoverView: View {
                     NavigationLink(value: playlist) {
                         PlaylistRow(playlist: playlist)
                     }
-                }
-                .navigationDestination(for: Playlist.self) { p in
-                    PlaylistDetailView(summary: p)
                 }
             }
         }

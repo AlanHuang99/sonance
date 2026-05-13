@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Bottom inset every scroll view in the detail pane should reserve so its last items aren't
+/// hidden under the mini-player bar. We compute this once so the bar's height and the
+/// scroll-view inset stay in sync — if the mini-player ever changes height, update this
+/// constant and every detail view gets the new inset automatically.
+///
+/// Breakdown for the current bar: 1 pt divider + 8 pt vertical padding (top) + 48 pt cover
+/// height + 8 pt vertical padding (bottom) = 65 pt; we round up to 80 to leave a small
+/// breathing margin between the last content row and the bar's edge.
+let miniPlayerSafeAreaInset: CGFloat = 80
+
 struct MiniPlayerBar: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var auth: AuthStore
@@ -85,12 +95,12 @@ struct MiniPlayerBar: View {
 
                     Spacer(minLength: 6)
 
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 10) {
-                            scrubber
-                            volume
-                        }
+                    // Scrubber always fits inline; volume is a small popover button so it
+                    // never disappears on narrow windows the way the prior ViewThatFits
+                    // layout did.
+                    HStack(spacing: 10) {
                         scrubber
+                        VolumeButton(volume: $player.volume)
                     }
                     .layoutPriority(1)
                     .frame(maxWidth: 360)
@@ -180,15 +190,6 @@ struct MiniPlayerBar: View {
         }
     }
 
-    private var volume: some View {
-        HStack(spacing: 4) {
-            Image(systemName: player.volume == 0 ? "speaker.slash" : "speaker.wave.2")
-                .foregroundStyle(.secondary)
-                .font(.caption)
-            Slider(value: $player.volume, in: 0...1).frame(width: 70)
-        }
-    }
-
     private func cover(for song: Song) -> some View {
         CoverArtImage(coverArtID: song.coverArt, size: 96, client: auth.client, corner: 4)
     }
@@ -198,6 +199,70 @@ struct MiniPlayerBar: View {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+}
+
+/// Always-visible volume control. Click the speaker icon to pop a horizontal slider; the
+/// icon itself reflects the current volume level (mute / 1 / 2 / 3 bars) so the bar gives
+/// the user a quick read on volume without opening the popover. Replaces the prior inline
+/// slider that lived inside a `ViewThatFits` and silently disappeared on narrow windows.
+struct VolumeButton: View {
+    @Binding var volume: Float
+    @State private var isPopoverShown = false
+    /// Remembered pre-mute volume. Letting the user toggle mute via the slider's slash icon
+    /// without losing where they were is friendlier than forcing them to drag back to the
+    /// previous level.
+    @State private var preMuteVolume: Float = 1.0
+
+    var body: some View {
+        Button {
+            isPopoverShown.toggle()
+        } label: {
+            Image(systemName: iconName)
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help("Volume")
+        .popover(isPresented: $isPopoverShown, arrowEdge: .top) {
+            HStack(spacing: 10) {
+                Button {
+                    toggleMute()
+                } label: {
+                    Image(systemName: volume == 0 ? "speaker.slash.fill" : "speaker.fill")
+                        .foregroundStyle(volume == 0 ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(volume == 0 ? "Unmute" : "Mute")
+
+                Slider(value: $volume, in: 0...1)
+                    .frame(width: 160)
+
+                Image(systemName: "speaker.wave.3.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+            .padding(12)
+        }
+    }
+
+    private var iconName: String {
+        if volume <= 0 { return "speaker.slash" }
+        if volume < 0.34 { return "speaker.wave.1" }
+        if volume < 0.67 { return "speaker.wave.2" }
+        return "speaker.wave.3"
+    }
+
+    private func toggleMute() {
+        if volume > 0 {
+            preMuteVolume = volume
+            volume = 0
+        } else {
+            // Restore a sensible default even if pre-mute was never captured (fresh launch
+            // with volume already 0 is unusual, but guard anyway).
+            volume = preMuteVolume > 0 ? preMuteVolume : 1.0
+        }
     }
 }
 

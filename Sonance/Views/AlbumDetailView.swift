@@ -106,7 +106,9 @@ struct AlbumDetailView: View {
                     onPlayAt: { idx in playSong(at: idx) }
                 )
             } else {
-                TrackListView(songs: songs, onPlay: { idx in playSong(at: idx) })
+                // Album-detail context: every row would carry the same album thumbnail, so
+                // suppress the per-row cover and keep the track-number column instead.
+                TrackListView(songs: songs, onPlay: { idx in playSong(at: idx) }, showsCovers: false)
             }
         } else {
             Text("No tracks").foregroundStyle(.secondary).padding(40).frame(maxWidth: .infinity)

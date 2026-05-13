@@ -40,8 +40,6 @@ struct SearchView: View {
             content
         }
         .navigationTitle("Search")
-        .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-        .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
         .onAppear { searchFieldFocused = true }
         .onChange(of: navigation.searchFocusRequest) { _, _ in
             searchFieldFocused = true
@@ -102,6 +100,7 @@ struct SearchView: View {
                 }
                 .padding(.bottom, 20)
             }
+            .contentMargins(.bottom, miniPlayerSafeAreaInset, for: .scrollContent)
         }
     }
 
