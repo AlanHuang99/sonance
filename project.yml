@@ -4,15 +4,29 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: "2.9.3"
 targets:
+  # Base / Mac App Store target. Sparkle-free by construction: it has no Sparkle
+  # package dependency, so the framework is never linked or embedded, and the
+  # SPARKLE compilation condition is undefined, so the updater code compiles to
+  # nothing. This is the target a future App Store submission ships.
   Sonance:
     type: application
     platform: macOS
     sources:
       - path: Sonance
+        # Both Info plists are generated config, not bundled resources. Excluding
+        # them from every target keeps the Direct target's plist out of the base
+        # app and vice versa.
+        excludes:
+          - Info.plist
+          - Info-Direct.plist
     info:
       path: Sonance/Info.plist
-      properties:
+      properties: &baseInfoProps
         CFBundleName: Sonance
         CFBundleDisplayName: Sonance
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -27,11 +41,11 @@ targets:
           - _http._tcp
           - _https._tcp
     settings:
-      base:
+      base: &baseSettings
         PRODUCT_BUNDLE_IDENTIFIER: com.alanhuang.Sonance
         PRODUCT_NAME: Sonance
         SWIFT_VERSION: "5.9"
-        MARKETING_VERSION: "0.4.0"
+        MARKETING_VERSION: "0.5.0"
         CURRENT_PROJECT_VERSION: "1"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_HARDENED_RUNTIME: YES
@@ -39,6 +53,42 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Sonance/Sonance.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  # Direct-distribution target (GitHub Releases). Same sources, product name, and
+  # bundle id as the base target, plus Sparkle: the package dependency, the
+  # SPARKLE compilation condition that activates the updater code, the entitlements
+  # that grant Sparkle's sandboxed installer its mach-lookup exceptions, and the
+  # feed/key Info.plist entries. This is the build we ship today.
+  Sonance-Direct:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sonance
+        excludes:
+          - Info.plist
+          - Info-Direct.plist
+    dependencies:
+      - package: Sparkle
+    info:
+      # Separate generated plist so the Sparkle keys never land in the base /
+      # App Store target's Info.plist (both targets would otherwise write the
+      # same file).
+      path: Sonance/Info-Direct.plist
+      properties:
+        <<: *baseInfoProps
+        # Sparkle (Direct build only). SUPublicEDKey is the base64 Ed25519 public
+        # key from `generate_keys`; the matching private key signs the appcast in
+        # CI. The feed lives on GitHub Pages; binaries stay on GitHub Releases.
+        SUEnableInstallerLauncherService: true
+        SUFeedURL: https://alanhuang99.github.io/sonance/appcast.xml
+        SUPublicEDKey: 2Vn/uTx6A3qihTZpDq9yxDqURLUkh8W2CuaFAqFdFBE=
+        SUEnableAutomaticChecks: false
+    settings:
+      base:
+        <<: *baseSettings
+        CODE_SIGN_ENTITLEMENTS: Sonance/Sonance-Direct.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: SPARKLE
+
   SonanceTests:
     type: bundle.unit-test
     platform: macOS

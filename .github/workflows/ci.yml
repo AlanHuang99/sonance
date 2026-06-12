@@ -51,3 +51,13 @@ jobs:
           test -f build/Build/Products/Release/Sonance.app/Contents/MacOS/Sonance
           plutil -lint build/Build/Products/Release/Sonance.app/Contents/Info.plist
           lipo -info build/Build/Products/Release/Sonance.app/Contents/MacOS/Sonance
+
+      # Build the Sparkle-linked Direct target too, so a broken Sparkle
+      # integration (compile or link) fails a PR instead of a release.
+      - name: Build Direct app (Sparkle)
+        run: ./scripts/build-release-app.sh 0.1.0-ci "$GITHUB_RUN_NUMBER" Sonance-Direct
+
+      - name: Verify Sparkle is embedded in Direct build
+        run: |
+          test -d build/Build/Products/Release/Sonance.app/Contents/Frameworks/Sparkle.framework
+          otool -L build/Build/Products/Release/Sonance.app/Contents/MacOS/Sonance | grep -qi Sparkle

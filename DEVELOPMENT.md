@@ -40,11 +40,68 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-Unsigned universal Release build:
+Unsigned universal Release build (base / App Store target):
 
 ```sh
 ./scripts/build-release-app.sh 0.1.0-local 1
 ```
+
+Direct (Sparkle) build — pass the scheme as the third argument:
+
+```sh
+./scripts/build-release-app.sh 0.1.0-local 1 Sonance-Direct
+```
+
+## Auto-update (Sparkle)
+
+In-app updates use [Sparkle](https://sparkle-project.org) and ship only in the
+`Sonance-Direct` target. The base `Sonance` target is Sparkle-free for a future
+Mac App Store submission. See the README's "Distribution channels" section for
+the split.
+
+**Do not add the Sparkle package dependency to the base `Sonance` target.** It is
+deliberately absent so the App Store binary never links or embeds Sparkle. The
+updater code lives behind `#if SPARKLE`, a condition set only on `Sonance-Direct`.
+
+### One-time signing-key setup
+
+Sparkle verifies updates with an EdDSA (ed25519) key pair. Generate it once with
+the `generate_keys` tool from the Sparkle release bundle (or the SwiftPM
+checkout's `bin/`):
+
+```sh
+generate_keys                 # stores the private key in your login keychain
+generate_keys -x sparkle_private.key   # also export it to a file
+```
+
+- The command prints a base64 **public** key. Put it in `SUPublicEDKey` in
+  `project.yml` (the `Sonance-Direct` target's `info.properties`), replacing the
+  `REPLACE_WITH_ED25519_PUBLIC_KEY` placeholder, and re-run `xcodegen generate`.
+- Store the exported private key as the `SPARKLE_ED_PRIVATE_KEY` GitHub Actions
+  secret (the verbatim file contents). Keep the file out of the repo; the repo is
+  public.
+
+### Update feed (GitHub Pages)
+
+`SUFeedURL` points at `https://alanhuang99.github.io/sonance/appcast.xml`. Enable
+GitHub Pages for the repo, serving the `gh-pages` branch. The release workflow
+signs each release zip and pushes an updated `appcast.xml` to that branch; the
+binaries themselves stay on the GitHub Releases page.
+
+The first Sparkle-enabled release cannot auto-update users already on an earlier,
+Sparkle-free build — they download it once from the Releases page, and in-app
+updates work from the next release onward.
+
+### Testing an update locally
+
+1. Build `Sonance-Direct` at a low version (e.g. `0.4.0`).
+2. Build a newer version (e.g. `0.4.1`), zip it, and sign it with
+   `sign_update Sonance-0.4.1.zip` to get the `edSignature`.
+3. Write a local `appcast.xml` describing `0.4.1` with that signature and a
+   `file://` (or local HTTP) enclosure URL, and point the older build's
+   `SUFeedURL` at it.
+4. Run the older build, choose "Check for Updates…", and confirm it downloads,
+   verifies, installs, and relaunches into `0.4.1`.
 
 ## Manual Navidrome Smoke Test
 

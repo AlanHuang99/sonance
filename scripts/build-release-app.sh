@@ -6,13 +6,17 @@ cd "$ROOT"
 
 VERSION="${1:-0.1.0-dev}"
 BUILD_NUMBER="${2:-1}"
+# Scheme selects the distribution channel: "Sonance" is the Sparkle-free base /
+# App Store build; "Sonance-Direct" links Sparkle for the GitHub Releases build.
+# Both produce Sonance.app at the same path (shared PRODUCT_NAME).
+SCHEME="${3:-Sonance}"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-build}"
 
 xcodegen generate
 
 xcodebuild \
   -project Sonance.xcodeproj \
-  -scheme Sonance \
+  -scheme "$SCHEME" \
   -configuration Release \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DATA_PATH" \
