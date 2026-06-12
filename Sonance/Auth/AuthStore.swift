@@ -144,8 +144,18 @@ final class AuthStore: ObservableObject {
         await signIn(creds)
     }
 
+    /// Set or clear an account's display alias. A blank value clears it (falls back to the host).
+    func setAlias(_ alias: String?, for id: ServerAccount.ID) {
+        guard let index = savedAccounts.firstIndex(where: { $0.id == id }) else { return }
+        savedAccounts[index].alias = ServerAccount.normalizedAlias(alias)
+        Self.saveAccounts(savedAccounts)
+    }
+
     private func upsertAccount(_ creds: ServerCredentials) {
-        let account = ServerAccount(credentials: creds)
+        // Preserve any alias already attached to this account — re-saving credentials or
+        // reconnecting must not silently drop the user's nickname.
+        let existingAlias = savedAccounts.first(where: { $0.id == creds.accountID })?.alias
+        let account = ServerAccount(credentials: creds, alias: existingAlias)
         savedAccounts.removeAll { $0.id == account.id }
         savedAccounts.insert(account, at: 0)
         Self.saveAccounts(savedAccounts)

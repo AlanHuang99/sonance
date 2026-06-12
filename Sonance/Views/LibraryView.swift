@@ -70,40 +70,27 @@ struct LibraryView: View {
         NavigationSplitView {
             List(selection: selectionBinding) {
                 ForEach(LibrarySection.allCases, id: \.self) { section in
-                    Label(section.rawValue, systemImage: section.systemImage)
+                    SidebarSectionLabel(section: section)
+                        .tag(section)
                 }
                 if !auth.savedAccounts.isEmpty {
                     Section("Saved Accounts") {
                         ForEach(auth.savedAccounts) { account in
-                            Button {
+                            SavedAccountRow(
+                                account: account,
+                                isActive: account.id == auth.activeAccountID
+                            ) {
                                 switchToAccount(account.id)
-                            } label: {
-                                let isCurrent = account.id == auth.activeAccountID
-                                let icon = isCurrent ? "checkmark.circle.fill" : "server.rack"
-                                let iconColor: Color = isCurrent ? .accentColor : .secondary
-                                HStack {
-                                    Image(systemName: icon)
-                                        .foregroundStyle(iconColor)
-                                        .frame(width: 20)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(account.credentials.displayHost)
-                                        Text(account.credentials.username)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if isCurrent {
-                                        Spacer(minLength: 0)
-                                        Text("Active")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
                             }
-                            .buttonStyle(.plain)
-                            .disabled(account.id == auth.activeAccountID)
                         }
                     }
                 }
+            }
+            // Raise the per-row floor so the navigation items fill the panel comfortably instead
+            // of sitting in the cramped default sidebar height.
+            .environment(\.defaultMinListRowHeight, 40)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                SidebarBrandHeader()
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
@@ -112,7 +99,7 @@ struct LibraryView: View {
                         .background(.bar)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 232)
         } detail: {
             detailContent
         }
@@ -279,7 +266,7 @@ struct ServerFooter: View {
                     .foregroundStyle(.secondary)
                     .font(.callout)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(displayHost)
+                    Text(activeAccountName)
                         .font(.caption).fontWeight(.medium)
                         .lineLimit(1)
                     Text(auth.credentials?.username ?? "")
@@ -299,14 +286,20 @@ struct ServerFooter: View {
         .padding(.vertical, 10)
     }
 
-    private var displayHost: String {
-        auth.credentials?.displayHost ?? "Not signed in"
+    /// Prefer the active account's nickname (falling back to its host) so the footer matches the
+    /// name shown in the sidebar and Accounts list.
+    private var activeAccountName: String {
+        if let id = auth.activeAccountID,
+           let account = auth.savedAccounts.first(where: { $0.id == id }) {
+            return account.displayName
+        }
+        return auth.credentials?.displayHost ?? "Not signed in"
     }
 
     private func accountLabel(for account: ServerAccount) -> some View {
         Label {
             VStack(alignment: .leading) {
-                Text(account.credentials.displayHost)
+                Text(account.displayName)
                 Text(account.credentials.username)
             }
         } icon: {
@@ -337,5 +330,81 @@ struct PlaceholderView: View {
             Text("Not implemented yet").foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// App wordmark pinned above the navigation list. Fills the otherwise-empty space below the
+/// window controls and gives the sidebar a clear identity.
+private struct SidebarBrandHeader: View {
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.tint)
+                .frame(width: 26, height: 26)
+                .background(.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+            Text("Sonance")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+}
+
+/// A roomier navigation row than the default sidebar `Label`: a larger glyph in a fixed-width
+/// slot and medium-weight text with vertical padding, so items fill the panel comfortably and
+/// stay easy to read on larger displays.
+private struct SidebarSectionLabel: View {
+    let section: LibrarySection
+
+    var body: some View {
+        Label {
+            Text(section.rawValue)
+                .font(.system(size: 14, weight: .medium))
+        } icon: {
+            Image(systemName: section.systemImage)
+                .font(.system(size: 16))
+                .frame(width: 24)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Sidebar row for a saved account. Shows the nickname (or host) and username, marks the active
+/// account, and switches to it on tap.
+private struct SavedAccountRow: View {
+    let account: ServerAccount
+    let isActive: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                Image(systemName: isActive ? "checkmark.circle.fill" : "server.rack")
+                    .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(account.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                    Text(account.credentials.username)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if isActive {
+                    Spacer(minLength: 0)
+                    Text("Active")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isActive)
     }
 }

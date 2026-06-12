@@ -16,28 +16,35 @@ struct CoverArtImage: View {
     }
 
     var body: some View {
-        ZStack {
-            placeholder
-            if case .success(let image) = loader.state {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .transition(.opacity)
-            } else if case .failure = loader.state {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.title3)
-                    .foregroundStyle(.tertiary)
+        // The artwork is layered as an *overlay* on a flexible placeholder, not as a sibling in
+        // a ZStack. A `scaledToFill` image reports a layout size that can exceed the proposed
+        // square — its natural, possibly non-square, dimensions — and a ZStack grows to contain
+        // it, so a wide or tall cover bleeds past the tile and overlaps its neighbours. An
+        // overlay instead takes its size from the placeholder it sits on and never feeds back
+        // into layout: the cover fills exactly the tile's square and the overflow is trimmed by
+        // `clipShape`, giving a centre-cropped result for any source aspect ratio.
+        placeholder
+            .overlay {
+                if case .success(let image) = loader.state {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                } else if case .failure = loader.state {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title3)
+                        .foregroundStyle(.tertiary)
+                }
             }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: corner))
-        .task(id: cacheKey) {
-            guard let cacheKey, let coverArtID, let client else {
-                loader.clear()
-                return
+            .clipShape(RoundedRectangle(cornerRadius: corner))
+            .task(id: cacheKey) {
+                guard let cacheKey, let coverArtID, let client else {
+                    loader.clear()
+                    return
+                }
+                await loader.load(cacheKey: cacheKey, coverArtID: coverArtID, size: size, client: client)
             }
-            await loader.load(cacheKey: cacheKey, coverArtID: coverArtID, size: size, client: client)
-        }
-        .animation(.easeInOut(duration: 0.18), value: loader.hasImage)
+            .animation(.easeInOut(duration: 0.18), value: loader.hasImage)
     }
 
     private var placeholder: some View {

@@ -10,6 +10,7 @@ struct AccountManagementView: View {
     @State private var serverURL = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var alias = ""
     @State private var statusMessage: String?
     @State private var statusIsError = false
     @State private var isTesting = false
@@ -47,7 +48,7 @@ struct AccountManagementView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Server Accounts")
                 .font(.system(size: 28, weight: .semibold))
-            Text("Save servers, test credentials, choose the startup test server, switch accounts, or delete old entries.")
+            Text("Give servers a nickname, test credentials, choose the startup default, switch accounts, or delete old entries.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -84,6 +85,8 @@ struct AccountManagementView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 10) {
+                TextField("Nickname (optional, e.g. Home Server)", text: $alias)
+                    .textFieldStyle(.roundedBorder)
                 TextField("https://music.example.com", text: $serverURL)
                     .textFieldStyle(.roundedBorder)
                     .textContentType(.URL)
@@ -156,7 +159,7 @@ struct AccountManagementView: View {
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text(account.credentials.displayHost)
+                            Text(account.displayName)
                                 .fontWeight(.medium)
                                 .lineLimit(1)
                             if isDefault {
@@ -167,16 +170,21 @@ struct AccountManagementView: View {
                                     .background(.yellow.opacity(0.22), in: Capsule())
                             }
                         }
-                        Text(account.credentials.username)
+                        Text(secondaryLine(for: account))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     Spacer()
-                    if isSelected {
-                        Image(systemName: "pencil")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(isActive ? "Active" : relativeLastUsed(account.lastUsedAt))
+                            .font(.caption2)
+                            .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                        if isSelected {
+                            Image(systemName: "pencil")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .contentShape(Rectangle())
@@ -224,6 +232,7 @@ struct AccountManagementView: View {
         serverURL = account.credentials.serverURL
         username = account.credentials.username
         password = account.credentials.password
+        alias = account.alias ?? ""
         statusMessage = nil
         statusIsError = false
     }
@@ -233,6 +242,7 @@ struct AccountManagementView: View {
         serverURL = ""
         username = ""
         password = ""
+        alias = ""
         statusMessage = nil
         statusIsError = false
     }
@@ -251,6 +261,7 @@ struct AccountManagementView: View {
     private func saveCurrentForm() {
         let prepared = currentCredentials.preparedForConnection
         auth.saveAccount(prepared)
+        auth.setAlias(alias, for: prepared.accountID)
         serverURL = prepared.serverURL
         username = prepared.username
         selectedAccountID = prepared.accountID
@@ -268,6 +279,7 @@ struct AccountManagementView: View {
                 statusIsError = true
                 statusMessage = error
             } else {
+                auth.setAlias(alias, for: currentCredentials.accountID)
                 selectedAccountID = currentCredentials.accountID
                 statusIsError = false
                 statusMessage = "Connected."
@@ -296,6 +308,21 @@ struct AccountManagementView: View {
         player.clearQueue()
         favorites.clear()
         library.clear()
+    }
+
+    /// When an alias is set the host would otherwise be hidden, so surface it alongside the
+    /// username; without an alias the primary line already shows the host.
+    private func secondaryLine(for account: ServerAccount) -> String {
+        if account.hasAlias {
+            return "\(account.credentials.displayHost) · \(account.credentials.username)"
+        }
+        return account.credentials.username
+    }
+
+    private func relativeLastUsed(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private var currentCredentials: ServerCredentials {
