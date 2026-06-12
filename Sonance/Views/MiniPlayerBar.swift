@@ -64,31 +64,29 @@ struct MiniPlayerBar: View {
                         Image(systemName: favorites.isSongFavorite(song.id) ? "heart.fill" : "heart")
                             .foregroundStyle(favorites.isSongFavorite(song.id) ? Color.pink : .secondary)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.iconControl)
                     .help(favorites.isSongFavorite(song.id) ? "Remove favorite" : "Add favorite")
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 2) {
                         Button { player.toggleShuffle() } label: {
                             Image(systemName: "shuffle")
                                 .foregroundStyle(player.isShuffled ? Color.accentColor : .secondary)
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.iconControl)
                         .help("Shuffle")
                         Button { player.previous() } label: { Image(systemName: "backward.fill") }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.iconControl)
                         Button { player.togglePlayPause() } label: {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.title3)
-                                .frame(width: 28, height: 28)
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.primaryIconControl)
                         Button { player.next() } label: { Image(systemName: "forward.fill") }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.iconControl)
                         Button { player.cycleRepeat() } label: {
                             Image(systemName: player.repeatMode.systemImage)
                                 .foregroundStyle(player.repeatMode == .off ? .secondary : Color.accentColor)
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.iconControl)
                         .help("Repeat: \(player.repeatMode.rawValue)")
                     }
                     .layoutPriority(3)
@@ -220,10 +218,8 @@ struct VolumeButton: View {
         } label: {
             Image(systemName: iconName)
                 .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.iconControl)
         .help("Volume")
         .popover(isPresented: $isPopoverShown, arrowEdge: .top) {
             HStack(spacing: 10) {
@@ -233,11 +229,11 @@ struct VolumeButton: View {
                     Image(systemName: volume == 0 ? "speaker.slash.fill" : "speaker.fill")
                         .foregroundStyle(volume == 0 ? Color.accentColor : .secondary)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.iconControl)
                 .help(volume == 0 ? "Unmute" : "Mute")
 
                 Slider(value: $volume, in: 0...1)
-                    .frame(width: 160)
+                    .frame(width: 180)
 
                 Image(systemName: "speaker.wave.3.fill")
                     .foregroundStyle(.secondary)

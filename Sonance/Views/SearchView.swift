@@ -22,10 +22,14 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 10) {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
                     TextField("Search artists, albums, songs", text: $query)
                         .textFieldStyle(.roundedBorder)
+                        .font(.title3)
+                        .controlSize(.large)
                         .focused($searchFieldFocused)
                         .onChange(of: query) { _, newValue in scheduleSearch(newValue) }
                 }
@@ -33,7 +37,8 @@ struct SearchView: View {
                     ForEach(Scope.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 420)
+                .controlSize(.large)
+                .frame(maxWidth: 440)
             }
             .padding(20)
             Divider()

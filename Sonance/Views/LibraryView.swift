@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
     case albums = "Albums"
@@ -338,11 +339,11 @@ struct PlaceholderView: View {
 private struct SidebarBrandHeader: View {
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: "waveform")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.tint)
-                .frame(width: 26, height: 26)
-                .background(.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+            // The app's own icon, so the sidebar mark always matches the Dock / window icon.
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 30, height: 30)
             Text("Sonance")
                 .font(.system(size: 18, weight: .bold, design: .rounded))
             Spacer(minLength: 0)

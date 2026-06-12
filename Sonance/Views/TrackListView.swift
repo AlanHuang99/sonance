@@ -135,7 +135,7 @@ struct TrackRow: View {
                 Image(systemName: isFavorite ? "heart.fill" : "heart")
                     .foregroundStyle(isFavorite ? Color.pink : .secondary)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.iconControl(hitTarget: 32, glyph: 16))
             .help(isFavorite ? "Remove favorite" : "Add favorite")
 
             Text(formatDuration(song.duration ?? 0))
