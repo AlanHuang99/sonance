@@ -30,8 +30,8 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Build unsigned Release app
-        run: ./scripts/build-release-app.sh "${{ steps.ver.outputs.version }}" "$GITHUB_RUN_NUMBER"
+      - name: Build unsigned Release app (Direct channel + Sparkle)
+        run: ./scripts/build-release-app.sh "${{ steps.ver.outputs.version }}" "$GITHUB_RUN_NUMBER" Sonance-Direct
 
       - name: Verify universal binary
         run: lipo -info build/Build/Products/Release/Sonance.app/Contents/MacOS/Sonance
@@ -69,7 +69,8 @@ jobs:
           ./scripts/sign-app.sh \
             build/Build/Products/Release/Sonance.app \
             "$IDENTITY" \
-            "$KEYCHAIN_PATH"
+            "$KEYCHAIN_PATH" \
+            Sonance/Sonance-Direct.entitlements
 
       - name: Notarize app
         env:
@@ -130,3 +131,81 @@ jobs:
             --title "Sonance ${{ steps.ver.outputs.tag }}" \
             --generate-notes \
             --notes-file "$NOTES"
+
+      # --- Sparkle appcast (Direct channel auto-update) ---
+      # The appcast steps are gated on the signing secret being present, so a
+      # release made before the Sparkle key is configured still succeeds (it just
+      # publishes the DMG/zip without refreshing the feed). The `enabled` check
+      # reads the secret via env, never interpolating it into a shell command.
+      - name: Check for Sparkle signing key
+        id: sparkle
+        env:
+          KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$KEY" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SPARKLE_ED_PRIVATE_KEY not set — skipping appcast update. In-app updates stay on the previous feed."
+          fi
+
+      - name: Sign update and refresh appcast
+        if: steps.sparkle.outputs.enabled == 'true'
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # Official Sparkle CLI tools bundle (prebuilt generate_appcast/sign_update).
+          SPARKLE_VER=2.9.3
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VER}/Sparkle-${SPARKLE_VER}.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          GENERATE_APPCAST="$RUNNER_TEMP/sparkle/bin/generate_appcast"
+
+          # EdDSA private key (the verbatim contents of `generate_keys -x`).
+          KEYFILE="$RUNNER_TEMP/sparkle_ed_private.key"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$KEYFILE"
+
+          # Work dir: the current appcast (to preserve prior entries) plus the new,
+          # notarized + stapled zip. generate_appcast merges and signs in place.
+          WORK="$RUNNER_TEMP/appcast"
+          mkdir -p "$WORK"
+          curl -fsSL "https://alanhuang99.github.io/sonance/appcast.xml" \
+            -o "$WORK/appcast.xml" || echo "No existing appcast (first Sparkle release)."
+          cp "build/release/Sonance-${{ steps.ver.outputs.tag }}.zip" "$WORK/"
+
+          "$GENERATE_APPCAST" \
+            --ed-key-file "$KEYFILE" \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.ver.outputs.tag }}/" \
+            --maximum-versions 0 \
+            -o "$WORK/appcast.xml" \
+            "$WORK"
+
+          rm -f "$KEYFILE"
+          echo "----- appcast.xml -----"
+          cat "$WORK/appcast.xml"
+
+      - name: Publish appcast to GitHub Pages
+        if: steps.sparkle.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/appcast"
+          PAGES="$RUNNER_TEMP/pages"
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone --depth 1 --branch gh-pages "$REMOTE" "$PAGES" 2>/dev/null; then
+            cp "$WORK/appcast.xml" "$PAGES/appcast.xml"
+          else
+            # First run: gh-pages doesn't exist yet. Create it as an orphan branch.
+            git clone --depth 1 "$REMOTE" "$PAGES"
+            ( cd "$PAGES" && git checkout --orphan gh-pages && git rm -rf . >/dev/null 2>&1 || true )
+            cp "$WORK/appcast.xml" "$PAGES/appcast.xml"
+          fi
+          cd "$PAGES"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "appcast: ${{ steps.ver.outputs.tag }}" || { echo "No appcast change."; exit 0; }
+          git push origin gh-pages

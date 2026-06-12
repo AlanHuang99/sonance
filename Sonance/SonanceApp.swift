@@ -8,6 +8,9 @@ struct SonanceApp: App {
     @StateObject private var favorites = FavoritesStore()
     @StateObject private var library = LibraryStore()
     @StateObject private var navigation = NavigationCoordinator()
+    #if SPARKLE
+    @StateObject private var updaterController = UpdaterController()
+    #endif
     @AppStorage("sonance.showMenuBarExtra") private var showMenuBarExtra: Bool = true
 
     var body: some Scene {
@@ -29,6 +32,14 @@ struct SonanceApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            #if SPARKLE
+            // "Check for Updates…" sits just under "About Sonance" in the app menu,
+            // the standard macOS placement. Gated to the Direct build (Sparkle).
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updaterController.checkForUpdates() }
+                    .disabled(!updaterController.canCheckForUpdates)
+            }
+            #endif
             // Add Find alongside the system text-editing items, not in place of them.
             // `replacing:` would wipe out any default Find/Find-Next slots SwiftUI may install;
             // `after:` injects our shortcut while preserving anything the platform provides.
@@ -85,6 +96,12 @@ struct SonanceApp: App {
             }
             CommandGroup(after: .appSettings) {
                 Toggle("Show Menu Bar Icon", isOn: $showMenuBarExtra)
+                #if SPARKLE
+                Toggle("Automatically Check for Updates", isOn: Binding(
+                    get: { updaterController.automaticallyChecksForUpdates },
+                    set: { updaterController.automaticallyChecksForUpdates = $0 }
+                ))
+                #endif
             }
         }
     }
