@@ -36,6 +36,16 @@ struct ContentView: View {
                     }
                 }
                 .animation(.spring(response: 0.45, dampingFraction: 0.82), value: showingNowPlaying)
+                .onChange(of: showingNowPlaying) { _, isShowing in
+                    if isShowing {
+                        // Drop first-responder focus (e.g. the Search field) when Now
+                        // Playing opens. A focused .roundedBorder text field draws its
+                        // AppKit focus ring in a layer that ignores SwiftUI's z-order,
+                        // so it otherwise bleeds through as a stray rectangle across the
+                        // top of the Now Playing panel.
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                }
             } else {
                 LoginView()
             }
