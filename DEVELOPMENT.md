@@ -103,6 +103,34 @@ updates work from the next release onward.
 4. Run the older build, choose "Check for Updates…", and confirm it downloads,
    verifies, installs, and relaunches into `0.4.1`.
 
+## Releases and signing
+
+Releases are published from Git tags by GitHub Actions (`.github/workflows/release.yml`). Pushing a tag like `v0.6.0` builds the `Sonance-Direct` target, signs it with a Developer ID Application certificate, notarizes it with Apple, publishes `Sonance-vX.Y.Z.dmg` and `Sonance-vX.Y.Z.zip` to the Releases page, signs the zip with Sparkle's EdDSA key, and updates `appcast.xml` on the GitHub Pages branch.
+
+Required repository secrets:
+
+- `MACOS_CERT_P12_BASE64` — base64-encoded Developer ID Application `.p12`
+- `MACOS_CERT_P12_PASSWORD`
+- `MACOS_KEYCHAIN_PASSWORD`
+- `MACOS_NOTARY_API_KEY_P8_BASE64` — base64-encoded App Store Connect API key `.p8`
+- `MACOS_NOTARY_API_KEY_ID`
+- `MACOS_NOTARY_ISSUER_ID`
+- `SPARKLE_ED_PRIVATE_KEY` — the Sparkle EdDSA private key (the verbatim contents of the file written by `generate_keys -x`). See "Auto-update (Sparkle)" above for the one-time key setup and enabling GitHub Pages for the feed.
+
+Encode the certificate and notary key files for the secrets:
+
+```sh
+base64 -i DeveloperIDApplication.p12 | pbcopy
+base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
+```
+
+Tag and push to trigger a release:
+
+```sh
+git tag v0.6.0
+git push origin v0.6.0
+```
+
 ## Manual Navidrome Smoke Test
 
 1. Launch the app and open `Accounts`.
