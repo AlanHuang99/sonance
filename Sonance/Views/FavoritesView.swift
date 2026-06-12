@@ -22,11 +22,13 @@ struct FavoritesView: View {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 360)
+                .controlSize(.large)
+                .frame(maxWidth: 380)
                 Spacer()
                 Button {
                     Task { await load(refresh: true) }
                 } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.iconControl)
                 .help("Refresh")
             }
             .padding(20)
@@ -98,7 +100,9 @@ struct FavoritesView: View {
                         }
                     } label: {
                         Label("Play All", systemImage: "play.fill")
-                    }.buttonStyle(.borderedProminent)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)

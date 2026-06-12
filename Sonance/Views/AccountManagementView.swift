@@ -64,6 +64,7 @@ struct AccountManagementView: View {
                 } label: {
                     Label("New", systemImage: "plus")
                 }
+                .controlSize(.large)
             }
 
             if auth.savedAccounts.isEmpty {
@@ -135,6 +136,7 @@ struct AccountManagementView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!canSubmit || isBusy)
             }
+            .controlSize(.large)
 
             Text("Save keeps the account available for future launches. Test checks the server without switching away from the current account.")
                 .font(.caption)
@@ -207,7 +209,7 @@ struct AccountManagementView: View {
                 }
                 .disabled(isBusy)
             }
-            .font(.caption)
+            .controlSize(.large)
         }
         .padding(12)
         .background(isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))

@@ -64,21 +64,24 @@ struct AlbumDetailView: View {
                     Button {
                         playAll()
                     } label: {
-                        Label("Play", systemImage: "play.fill").frame(width: 80)
+                        Label("Play", systemImage: "play.fill").frame(width: 88)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled((detail?.song?.isEmpty ?? true))
 
                     Button("Play Next") { playNext() }
+                        .controlSize(.large)
                         .disabled((detail?.song?.isEmpty ?? true))
                     Button("Add to Queue") { addToQueue() }
+                        .controlSize(.large)
                         .disabled((detail?.song?.isEmpty ?? true))
 
                     Button(action: toggleFavorite) {
                         Image(systemName: favorites.isAlbumFavorite(album.id) ? "heart.fill" : "heart")
                             .foregroundStyle(favorites.isAlbumFavorite(album.id) ? Color.pink : .secondary)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.iconControl)
                     .help(favorites.isAlbumFavorite(album.id) ? "Remove favorite" : "Add favorite")
                 }
             }

@@ -283,9 +283,10 @@ struct PlaylistDetailView: View {
                     Button {
                         playAll()
                     } label: {
-                        Label("Play", systemImage: "play.fill").frame(width: 80)
+                        Label("Play", systemImage: "play.fill").frame(width: 88)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled((detail?.entry?.isEmpty ?? true))
                     if !summary.isSmart {
                         Button {
@@ -293,6 +294,7 @@ struct PlaylistDetailView: View {
                         } label: {
                             Label("Add Tracks", systemImage: "plus")
                         }
+                        .controlSize(.large)
                     }
                 }
                 .padding(.top, 4)
@@ -326,6 +328,7 @@ struct PlaylistDetailView: View {
                 if !summary.isSmart {
                     Button("Add Tracks") { showingAddTracks = true }
                         .buttonStyle(.bordered)
+                        .controlSize(.large)
                 }
             }
             .padding(40).frame(maxWidth: .infinity)
@@ -515,10 +518,11 @@ struct AddTracksToPlaylistSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.title3).foregroundStyle(.secondary)
                 TextField("Search songs to add", text: $query)
                     .textFieldStyle(.roundedBorder)
+                    .controlSize(.large)
                     .onChange(of: query) { _, _ in scheduleSearch() }
             }
             .padding(16)
@@ -556,10 +560,12 @@ struct AddTracksToPlaylistSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .controlSize(.large)
                 Button(isAdding ? "Adding…" : "Add \(addCount > 0 ? "\(addCount)" : "")") {
                     Task { await addSelected() }
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(addCount == 0 || isAdding)
             }
             .padding(12)

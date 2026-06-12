@@ -144,13 +144,15 @@ struct AlbumsView: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Text("Sort: \(sort.label)")
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                 Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)

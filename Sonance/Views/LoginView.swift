@@ -36,7 +36,7 @@ struct LoginView: View {
                                 Text("Re-connect Test Server")
                                     .lineLimit(1)
                                 Spacer()
-                                Text(testServer.credentials.displayHost)
+                                Text(testServer.displayName)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
@@ -44,6 +44,7 @@ struct LoginView: View {
                             .frame(maxWidth: 360)
                         }
                         .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                         .disabled(isBusy)
                     }
 
@@ -79,6 +80,7 @@ struct LoginView: View {
                             .textFieldStyle(.roundedBorder)
                             .textContentType(.password)
                     }
+                    .controlSize(.large)
                     .frame(maxWidth: 360)
 
                     if let err = auth.lastError {
@@ -122,6 +124,7 @@ struct LoginView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(isBusy || !canSubmit)
                     }
+                    .controlSize(.large)
                     .frame(maxWidth: 360, alignment: .leading)
                 }
                 .padding(44)
@@ -155,7 +158,7 @@ struct LoginView: View {
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 6) {
-                            Text(account.credentials.displayHost)
+                            Text(account.displayName)
                                 .fontWeight(.medium)
                                 .lineLimit(1)
                             if isPreset {
@@ -166,7 +169,9 @@ struct LoginView: View {
                                     .background(.yellow.opacity(0.22), in: Capsule())
                             }
                         }
-                        Text(account.credentials.username)
+                        Text(account.hasAlias
+                             ? "\(account.credentials.displayHost) · \(account.credentials.username)"
+                             : account.credentials.username)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -185,7 +190,7 @@ struct LoginView: View {
 
                     Button("Delete", role: .destructive, action: onForget)
                 }
-                .font(.caption)
+                .controlSize(.large)
             }
             .padding(10)
             .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))

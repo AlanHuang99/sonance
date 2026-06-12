@@ -165,9 +165,10 @@ struct ArtistDetailView: View {
                     Button {
                         Task { await playDiscography(shuffled: false) }
                     } label: {
-                        Label("Play All", systemImage: "play.fill").frame(width: 90)
+                        Label("Play All", systemImage: "play.fill").frame(width: 96)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled((detail?.album?.isEmpty ?? true) || loadingDiscography)
 
                     Button {
@@ -175,6 +176,7 @@ struct ArtistDetailView: View {
                     } label: {
                         Label("Shuffle", systemImage: "shuffle")
                     }
+                    .controlSize(.large)
                     .disabled((detail?.album?.isEmpty ?? true) || loadingDiscography)
 
                     if loadingDiscography {

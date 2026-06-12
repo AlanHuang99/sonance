@@ -30,13 +30,15 @@ struct DiscoverView: View {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 420)
+                .controlSize(.large)
+                .frame(maxWidth: 440)
                 Spacer()
                 Button {
                     Task { await load(refresh: true) }
                 } label: {
                     Label("Shuffle", systemImage: "shuffle")
                 }
+                .controlSize(.large)
                 .disabled(isLoading)
                 if mode == .songs {
                     Button {
@@ -47,6 +49,7 @@ struct DiscoverView: View {
                         Label("Play All", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(songs.isEmpty)
                 }
             }

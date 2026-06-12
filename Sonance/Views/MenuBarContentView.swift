@@ -20,18 +20,17 @@ struct MenuBarContentView: View {
                 }
                 .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
 
-                HStack(spacing: 16) {
+                HStack(spacing: 10) {
                     Spacer()
                     Button { player.previous() } label: {
                         Image(systemName: "backward.fill")
-                    }.buttonStyle(.borderless)
+                    }.buttonStyle(.iconControl)
                     Button { player.togglePlayPause() } label: {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title3)
-                    }.buttonStyle(.borderless)
+                    }.buttonStyle(.iconControl(hitTarget: 40, glyph: 22))
                     Button { player.next() } label: {
                         Image(systemName: "forward.fill")
-                    }.buttonStyle(.borderless)
+                    }.buttonStyle(.iconControl)
                     Spacer()
                 }
                 .padding(.bottom, 10)

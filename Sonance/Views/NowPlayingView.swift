@@ -37,12 +37,9 @@ struct NowPlayingView: View {
             .overlay(alignment: .trailing) {
                 Button(action: onDismiss) {
                     Image(systemName: "chevron.down")
-                        .font(.callout)
                         .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.iconControl)
                 .keyboardShortcut(.escape, modifiers: [])
                 .help("Close (Esc)")
                 .padding(.trailing, 12)
@@ -120,21 +117,22 @@ struct NowPlayingView: View {
                     }
                 }
 
-                HStack(spacing: 32) {
+                HStack(spacing: 24) {
                     Button { player.previous() } label: {
-                        Image(systemName: "backward.fill").font(.title)
+                        Image(systemName: "backward.fill")
                     }
+                    .buttonStyle(.iconControl(hitTarget: 54, glyph: 28))
                     Button { player.togglePlayPause() } label: {
                         Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 56))
                     }
+                    .buttonStyle(.iconControl(hitTarget: 72, glyph: 60, weight: .regular))
                     Button { player.next() } label: {
-                        Image(systemName: "forward.fill").font(.title)
+                        Image(systemName: "forward.fill")
                     }
+                    .buttonStyle(.iconControl(hitTarget: 54, glyph: 28))
                 }
-                .buttonStyle(.borderless)
 
-                HStack(spacing: 28) {
+                HStack(spacing: 20) {
                     Button { player.toggleShuffle() } label: {
                         Image(systemName: "shuffle")
                             .foregroundStyle(player.isShuffled ? Color.accentColor : .secondary)
@@ -155,8 +153,7 @@ struct NowPlayingView: View {
                     }
                     .help(favorites.isSongFavorite(song.id) ? "Remove favorite" : "Add favorite")
                 }
-                .buttonStyle(.borderless)
-                .font(.title3)
+                .buttonStyle(.iconControl(hitTarget: 40, glyph: 21))
 
                 // Inline volume row. The mini-player is hidden while Now Playing is open, so
                 // without this control the user has no way to adjust volume from inside the
@@ -312,6 +309,7 @@ struct QueuePaneView: View {
                 Text("Up Next — \(player.queue.count) tracks").font(.headline)
                 Spacer()
                 Button("Clear") { player.clearQueue() }
+                    .controlSize(.large)
                     .disabled(player.queue.isEmpty)
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -451,7 +449,7 @@ struct LyricsPaneView: View {
                             Spacer()
                             Toggle("Follow", isOn: $followCurrentLine)
                                 .toggleStyle(.switch)
-                                .controlSize(.small)
+                                .controlSize(.regular)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
