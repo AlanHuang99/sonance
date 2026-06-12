@@ -101,3 +101,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.alanhuang.SonanceTests
         SWIFT_VERSION: "5.9"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+# Explicit schemes so no single scheme builds both app targets. Both Sonance and
+# Sonance-Direct produce Sonance.app (shared PRODUCT_NAME), so an auto-created
+# scheme that builds both trips "Multiple commands produce Sonance.app" on the
+# stricter Xcode used in CI. Each scheme below builds exactly one app target.
+schemes:
+  Sonance:
+    build:
+      targets:
+        Sonance: all
+        SonanceTests: [test]
+    test:
+      targets:
+        - SonanceTests
+  Sonance-Direct:
+    build:
+      targets:
+        Sonance-Direct: all
