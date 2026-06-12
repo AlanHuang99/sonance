@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-06-12
+
+### Added
+
+- Saved accounts can carry an optional nickname, shown in the sidebar, the server footer, the Accounts editor, and the login screen. Nicknames persist across credential re-saves and reconnects.
+- Sidebar header showing the app icon and name above the navigation list.
+
+### Changed
+
+- Cover art is center-cropped to a square for any source aspect ratio, so wide or tall artwork fills its tile consistently instead of being displayed in full.
+- Larger, more consistent tap targets throughout: the mini-player, Now Playing, and menu-bar transports; the favorite, volume, and close buttons; the segmented pickers and search fields; and the primary action buttons.
+- Taller, more legible sidebar navigation rows.
+
+### Fixed
+
+- Non-square cover art no longer overflows its grid tile and overlaps adjacent albums in the grid.
+
 ## [0.3.1] — 2026-05-13
 
 ### Fixed
@@ -129,6 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
+[0.4.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.4.0
 [0.3.1]: https://github.com/AlanHuang99/sonance/releases/tag/v0.3.1
 [0.3.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.3.0
 [0.2.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.2.0
