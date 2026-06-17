@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The album page no longer leaves a large empty gap between the album details and the Play / Play Next / Add to Queue buttons; the header now sits at its natural height and the track list fills the reclaimed space.
+- The last rows of track lists and other detail lists (album, playlist, Discover, Favorites, Artists) are no longer hidden behind the mini-player bar; every list now reserves room so its final item can scroll clear of the bar.
+
 ## [0.5.1] — 2026-06-12
 
 ### Fixed

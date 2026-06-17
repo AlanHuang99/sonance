@@ -97,6 +97,7 @@ struct PlaylistsView: View {
                             }
                     }
                 }
+                .reservesMiniPlayerBar()
             }
         }
     }
@@ -481,6 +482,7 @@ struct EditablePlaylistTrackList: View {
             }
         }
         .listStyle(.inset)
+        .reservesMiniPlayerBar()
         .onKeyPress(.return) {
             guard let idx = selectedPosition, idx >= 0, idx < songs.count else { return .ignored }
             onPlay(idx)

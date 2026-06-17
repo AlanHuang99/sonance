@@ -8,6 +8,13 @@ struct TrackListView: View {
     /// row and aid recognition. Album-detail call sites opt out (`showsCovers: false`)
     /// because every row would carry the same album thumbnail.
     var showsCovers: Bool = true
+    /// Reserve bottom room for the floating mini-player bar so the last row can scroll clear
+    /// of it. `.safeAreaInset` on the NavigationSplitView in ContentView doesn't propagate
+    /// into the detail column's inner scroll views, so each one reserves the inset itself
+    /// (the grid views already do via `.contentMargins`). Call sites that embed this list
+    /// inside an outer scroll view which already reserves the inset (SearchView) pass `false`
+    /// to avoid double-spacing.
+    var reservesMiniPlayerInset: Bool = true
 
     @EnvironmentObject var auth: AuthStore
     @EnvironmentObject var player: Player
@@ -50,6 +57,7 @@ struct TrackListView: View {
             }
         }
         .listStyle(.inset)
+        .reservesMiniPlayerBar(reservesMiniPlayerInset)
         .onKeyPress(.return) {
             guard let idx = selectedPosition, idx >= 0, idx < songs.count else { return .ignored }
             onPlay(idx)

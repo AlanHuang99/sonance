@@ -92,12 +92,14 @@ struct DiscoverView: View {
                         ArtistRow(artist: artist, client: auth.client)
                     }
                 }
+                .reservesMiniPlayerBar()
             case .playlists:
                 List(playlists) { playlist in
                     NavigationLink(value: playlist) {
                         PlaylistRow(playlist: playlist)
                     }
                 }
+                .reservesMiniPlayerBar()
             }
         }
     }

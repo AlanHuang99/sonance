@@ -10,6 +10,28 @@ import SwiftUI
 /// breathing margin between the last content row and the bar's edge.
 let miniPlayerSafeAreaInset: CGFloat = 80
 
+extension View {
+    /// Reserve room at the bottom of a `List` so its last row can scroll clear of the
+    /// floating mini-player bar.
+    ///
+    /// Why not `.contentMargins(.bottom, …, for: .scrollContent)` like the grid views? That
+    /// modifier is a **no-op on `List`** (NSTableView-backed) on macOS 14 — it only affects
+    /// `ScrollView`. A transparent `safeAreaInset` reserves the space reliably on `List`.
+    /// Grid (`ScrollView`) call sites keep using `.contentMargins` directly, which works
+    /// there. The mini-player itself is drawn over the content by `ContentView`, so this
+    /// inset is transparent — it only pushes the scrollable content up off the bar.
+    @ViewBuilder
+    func reservesMiniPlayerBar(_ active: Bool = true) -> some View {
+        if active {
+            safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: miniPlayerSafeAreaInset)
+            }
+        } else {
+            self
+        }
+    }
+}
+
 struct MiniPlayerBar: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var auth: AuthStore

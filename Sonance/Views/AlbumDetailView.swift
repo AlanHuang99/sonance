@@ -59,7 +59,12 @@ struct AlbumDetailView: View {
                         Text(dur).font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                Spacer(minLength: 8)
+                // A fixed top padding here, not a `Spacer`: a flexible `Spacer` makes this
+                // VStack (and the whole header HStack) greedy in height, so the outer
+                // `VStack { header; Divider; tracks }` splits the pane between the header and
+                // the track List and the buttons get shoved to the middle of a tall empty
+                // band. Fixed padding keeps the header at its natural height — the same
+                // fixed-padding approach the PlaylistDetailView header already uses.
                 HStack(spacing: 10) {
                     Button {
                         playAll()
@@ -84,6 +89,7 @@ struct AlbumDetailView: View {
                     .buttonStyle(.iconControl)
                     .help(favorites.isAlbumFavorite(album.id) ? "Remove favorite" : "Add favorite")
                 }
+                .padding(.top, 6)
             }
             Spacer()
         }
@@ -256,6 +262,7 @@ struct MultiDiscTrackList: View {
             }
         }
         .listStyle(.inset)
+        .reservesMiniPlayerBar()
         .onKeyPress(.return) {
             guard let id = selectedSongID,
                   let idx = allSongs.firstIndex(where: { $0.id == id }) else { return .ignored }

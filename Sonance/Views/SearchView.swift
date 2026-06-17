@@ -92,11 +92,14 @@ struct SearchView: View {
                     }
                     if !visibleSongs.isEmpty {
                         sectionHeader("Songs", count: visibleSongs.count)
+                        // Embedded in the outer ScrollView, which already reserves the
+                        // mini-player inset via `.contentMargins` below — opt this inner list
+                        // out so the bottom gap isn't doubled.
                         TrackListView(songs: visibleSongs, onPlay: { idx in
                             if let client = auth.client {
                                 player.play(visibleSongs, startAt: idx, using: client)
                             }
-                        })
+                        }, reservesMiniPlayerInset: false)
                         .frame(minHeight: CGFloat(min(visibleSongs.count, 12)) * 50)
                     }
                     if visibleArtists.isEmpty && visibleAlbums.isEmpty && visibleSongs.isEmpty {

@@ -145,6 +145,7 @@ struct FavoritesView: View {
                     ArtistRow(artist: a, client: auth.client)
                 }
             }
+            .reservesMiniPlayerBar()
         }
     }
 
