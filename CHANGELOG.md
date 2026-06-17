@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-06-17
+
 ### Fixed
 
 - The album page no longer leaves a large empty gap between the album details and the Play / Play Next / Add to Queue buttons; the header now sits at its natural height and the track list fills the reclaimed space.
@@ -165,6 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
+[0.5.2]: https://github.com/AlanHuang99/sonance/releases/tag/v0.5.2
 [0.5.1]: https://github.com/AlanHuang99/sonance/releases/tag/v0.5.1
 [0.5.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.5.0
 [0.4.0]: https://github.com/AlanHuang99/sonance/releases/tag/v0.4.0
