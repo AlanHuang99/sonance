@@ -19,6 +19,7 @@ struct ArtistsView: View {
                         ArtistRow(artist: artist, client: auth.client)
                     }
                 }
+                .reservesMiniPlayerBar()
             }
         }
         .navigationTitle("Artists")
