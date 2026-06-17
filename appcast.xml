@@ -3,6 +3,14 @@
     <channel>
         <title>Sonance</title>
         <item>
+            <title>0.5.2</title>
+            <pubDate>Wed, 17 Jun 2026 11:23:09 +0000</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.5.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/AlanHuang99/sonance/releases/download/v0.5.2/Sonance-v0.5.2.zip" length="3648703" type="application/octet-stream" sparkle:edSignature="Etkb+XHxjndij8fvIZW+E1Spqf5iKx1vltUoWl5K6k7L5zsdJd0Zv+CEmSbitmub1hlfirFZa2ThTNGts9//Cw=="/>
+        </item>
+        <item>
             <title>0.5.1</title>
             <pubDate>Fri, 12 Jun 2026 22:09:39 +0000</pubDate>
             <sparkle:version>9</sparkle:version>
