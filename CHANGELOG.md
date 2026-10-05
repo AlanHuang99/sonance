@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Playback failures now retry once at the saved position and show a visible error when recovery fails, instead of leaving the player silently stuck.
+- Buffering stalls recover automatically if playback makes no progress, with a bounded retry and cancellation when playback is paused or stopped.
+- Delayed seek and track-end callbacks no longer restart paused playback, skip a newly selected track, or leave the queue out of sync with the audio during automatic transitions.
+
 ## [0.5.2] — 2026-06-17
 
 ### Fixed

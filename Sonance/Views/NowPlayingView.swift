@@ -100,6 +100,17 @@ struct NowPlayingView: View {
                     }
                 }
 
+                if let error = player.playbackError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                } else if player.isBuffering {
+                    Text("Buffering…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 VStack(spacing: 4) {
                     Slider(
                         value: Binding(

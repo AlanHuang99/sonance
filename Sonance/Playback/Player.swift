@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import os
 
 enum RepeatMode: String, CaseIterable {
     case off, all, one
@@ -19,6 +20,8 @@ final class Player: ObservableObject {
     @Published private(set) var queue: [Song] = []
     @Published private(set) var queueIndex: Int = 0
     @Published private(set) var isPlaying: Bool = false
+    @Published private(set) var isBuffering: Bool = false
+    @Published private(set) var playbackError: String?
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published var volume: Float = 1.0 {
@@ -30,9 +33,22 @@ final class Player: ObservableObject {
     /// Snapshot of the queue order before shuffle, used to restore on un-shuffle.
     private var unshuffledQueue: [Song] = []
 
-    private let avPlayer = AVQueuePlayer()
+    private let avPlayer: AVQueuePlayer
+    private let userDefaults: UserDefaults
+    private let makePlayerItem: (URL) -> AVPlayerItem
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var failureObserver: NSObjectProtocol?
+    private var stallObserver: NSObjectProtocol?
+    private var itemStatusObserver: NSKeyValueObservation?
+    private var playbackStatusObserver: NSKeyValueObservation?
+    private var currentItemObserver: NSKeyValueObservation?
+    /// Keep identity even when AVQueuePlayer removes a failed/finished item.
+    private var activeItem: AVPlayerItem?
+    private var recoveryTask: Task<Void, Never>?
+    private var resumeTask: Task<Void, Never>?
+    private var recoveryAttempts = 0
+    private let logger = Logger(subsystem: "com.alanhuang.Sonance", category: "Playback")
     private var activeClient: SubsonicClient?
     private var hasScrobbledCurrent: Bool = false
     private var lastSavedSecond: Int = -1
@@ -54,11 +70,33 @@ final class Player: ObservableObject {
         let volume: Float
     }
 
-    init() {
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 1000)
-        timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+    init(
+        avPlayer: AVQueuePlayer = AVQueuePlayer(),
+        userDefaults: UserDefaults = .standard,
+        makePlayerItem: @escaping (URL) -> AVPlayerItem = { AVPlayerItem(url: $0) }
+    ) {
+        self.avPlayer = avPlayer
+        self.userDefaults = userDefaults
+        self.makePlayerItem = makePlayerItem
+        avPlayer.automaticallyWaitsToMinimizeStalling = true
+        currentItemObserver = avPlayer.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in self?.reconcileAutomaticAdvance() }
+        }
+        playbackStatusObserver = avPlayer.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.isBuffering = self.isPlaying && self.avPlayer.timeControlStatus != .playing
+                NowPlayingCenter.shared.updatePlaybackAnchor(
+                    isPlaying: self.isPlaying && !self.isBuffering, elapsed: self.currentTime
+                )
+            }
+        }
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 1000)
+        timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            let item = self?.avPlayer.currentItem
+            Task { @MainActor in
+                guard let self, let item, item === self.activeItem,
+                      self.avPlayer.currentItem === item, self.resumeTask == nil else { return }
                 let t = time.seconds
                 self.currentTime = (t.isFinite && t >= 0) ? t : 0
                 if let item = self.avPlayer.currentItem {
@@ -97,7 +135,7 @@ final class Player: ObservableObject {
     private func syncNowPlaying() {
         NowPlayingCenter.shared.update(
             song: currentSong,
-            isPlaying: isPlaying,
+            isPlaying: isPlaying && !isBuffering,
             elapsed: currentTime,
             duration: duration,
             client: activeClient
@@ -106,7 +144,7 @@ final class Player: ObservableObject {
 
     func restorePaused(client: SubsonicClient) {
         guard currentSong == nil else { return }
-        guard let data = UserDefaults.standard.data(forKey: Self.stateKey),
+        guard let data = userDefaults.data(forKey: Self.stateKey),
               let state = try? JSONDecoder().decode(PersistedState.self, from: data),
               !state.queue.isEmpty else { return }
         activeClient = client
@@ -138,7 +176,7 @@ final class Player: ObservableObject {
             volume: volume
         )
         if let data = try? JSONEncoder().encode(state) {
-            UserDefaults.standard.set(data, forKey: Self.stateKey)
+            userDefaults.set(data, forKey: Self.stateKey)
         }
     }
 
@@ -152,12 +190,16 @@ final class Player: ObservableObject {
     }
 
     private func clearSavedState() {
-        UserDefaults.standard.removeObject(forKey: Self.stateKey)
+        userDefaults.removeObject(forKey: Self.stateKey)
     }
 
     deinit {
+        recoveryTask?.cancel()
+        resumeTask?.cancel()
         if let timeObserver { avPlayer.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
+        if let stallObserver { NotificationCenter.default.removeObserver(stallObserver) }
     }
 
     // MARK: - Play actions
@@ -174,6 +216,7 @@ final class Player: ObservableObject {
     }
 
     func playNext(_ songs: [Song], using client: SubsonicClient) {
+        reconcileAutomaticAdvance()
         activeClient = client
         if queue.isEmpty {
             play(songs, startAt: 0, using: client)
@@ -185,6 +228,7 @@ final class Player: ObservableObject {
     }
 
     func appendToQueue(_ songs: [Song], using client: SubsonicClient) {
+        reconcileAutomaticAdvance()
         activeClient = client
         if queue.isEmpty {
             play(songs, startAt: 0, using: client)
@@ -199,6 +243,7 @@ final class Player: ObservableObject {
     /// empty, falls back to `play(songs:startAt:0)`. Indices outside the queue are clamped.
     /// Used by the Now Playing queue's drag-and-drop target.
     func insert(_ songs: [Song], at index: Int, using client: SubsonicClient) {
+        reconcileAutomaticAdvance()
         activeClient = client
         if queue.isEmpty {
             play(songs, startAt: 0, using: client)
@@ -228,6 +273,7 @@ final class Player: ObservableObject {
     }
 
     func removeFromQueue(at index: Int) {
+        reconcileAutomaticAdvance()
         guard index >= 0, index < queue.count else { return }
         let result = PlaybackQueueLogic.remove(at: index, queue: &queue, queueIndex: &queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
         clearPreload()
@@ -243,6 +289,7 @@ final class Player: ObservableObject {
     }
 
     func moveQueueItem(from source: Int, to destination: Int) {
+        reconcileAutomaticAdvance()
         guard source >= 0, source < queue.count, destination >= 0, destination <= queue.count, source != destination else { return }
         PlaybackQueueLogic.move(from: source, to: destination, queue: &queue, queueIndex: &queueIndex, isShuffled: isShuffled, unshuffledQueue: &unshuffledQueue)
         clearPreload()
@@ -258,15 +305,20 @@ final class Player: ObservableObject {
     }
 
     func togglePlayPause() {
+        reconcileAutomaticAdvance()
         guard currentSong != nil else { return }
-        if avPlayer.currentItem == nil {
-            // Restored-from-state but not yet started — load the item and seek to saved position.
-            playCurrent(startAt: currentTime > 0 ? currentTime : nil)
-            return
-        }
         if isPlaying {
+            resumeTask?.cancel()
+            resumeTask = nil
+            recoveryTask?.cancel()
+            recoveryTask = nil
             avPlayer.pause()
             isPlaying = false
+            isBuffering = false
+        } else if avPlayer.currentItem == nil {
+            // Restored state or a terminal failure: retry at the saved position.
+            playCurrent(startAt: currentTime > 0 ? currentTime : nil)
+            return
         } else {
             avPlayer.play()
             isPlaying = true
@@ -274,33 +326,52 @@ final class Player: ObservableObject {
         NowPlayingCenter.shared.updatePlaybackAnchor(isPlaying: isPlaying, elapsed: currentTime)
     }
 
-    func next() { advanceOrStop() }
+    func next() {
+        reconcileAutomaticAdvance()
+        advanceOrStop()
+    }
 
     func previous() {
+        reconcileAutomaticAdvance()
         if currentTime > 3 {
-            avPlayer.seek(to: .zero)
+            seek(to: 0)
         } else if queueIndex > 0 {
             queueIndex -= 1
             playCurrent()
         } else {
-            avPlayer.seek(to: .zero)
+            seek(to: 0)
         }
     }
 
     func seek(to seconds: TimeInterval) {
-        avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 1000))
+        reconcileAutomaticAdvance()
+        guard seconds.isFinite else { return }
+        resumeTask?.cancel()
+        resumeTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        let seconds = max(0, duration > 0 ? min(seconds, duration) : seconds)
         currentTime = seconds
+        if avPlayer.currentItem != nil { seekCurrentItem(to: seconds) }
         NowPlayingCenter.shared.updatePlaybackAnchor(isPlaying: isPlaying, elapsed: seconds)
     }
 
     func stop() {
+        resumeTask?.cancel()
+        resumeTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        pendingSaveTask?.cancel()
+        pendingSaveTask = nil
+        activeItem = nil
+        removeItemObservers()
         avPlayer.pause()
         clearPreload()
         avPlayer.removeAllItems()
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
         currentSong = nil
         isPlaying = false
+        isBuffering = false
+        playbackError = nil
         currentTime = 0
         duration = 0
         hasScrobbledCurrent = false
@@ -310,6 +381,7 @@ final class Player: ObservableObject {
     // MARK: - Repeat / Shuffle
 
     func cycleRepeat() {
+        reconcileAutomaticAdvance()
         switch repeatMode {
         case .off: repeatMode = .all
         case .all: repeatMode = .one
@@ -321,6 +393,7 @@ final class Player: ObservableObject {
     }
 
     func toggleShuffle() {
+        reconcileAutomaticAdvance()
         PlaybackQueueLogic.toggleShuffle(queue: &queue, queueIndex: &queueIndex, isShuffled: &isShuffled, unshuffledQueue: &unshuffledQueue, currentSong: currentSong)
         clearPreload()
         saveState()
@@ -329,48 +402,162 @@ final class Player: ObservableObject {
 
     // MARK: - Internal
 
-    private func playCurrent(startAt resumeTime: TimeInterval? = nil) {
+    private func playCurrent(startAt resumeTime: TimeInterval? = nil, recovering: Bool = false, shouldPlay: Bool = true) {
         guard queueIndex >= 0, queueIndex < queue.count, let client = activeClient else {
             stop()
             return
         }
         let song = queue[queueIndex]
+        resumeTask?.cancel()
+        resumeTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        activeItem = nil
+        removeItemObservers()
         currentSong = song
-        hasScrobbledCurrent = false
-        guard let url = client.streamURL(id: song.id) else { return }
-        let item = AVPlayerItem(url: url)
+        if !recovering {
+            recoveryAttempts = 0
+            hasScrobbledCurrent = false
+        }
+        playbackError = nil
+        guard let url = client.streamURL(id: song.id) else {
+            isPlaying = false
+            isBuffering = false
+            playbackError = "Unable to open this track. Check the server address and try again."
+            return
+        }
+        let item = makePlayerItem(url)
         clearPreload()
         avPlayer.removeAllItems()
         installEndObserver(for: item)
         avPlayer.insert(item, after: nil)
         avPlayer.volume = volume
+        isPlaying = shouldPlay
+        isBuffering = shouldPlay
         if let resumeTime, resumeTime > 0 {
             currentTime = resumeTime
-            Task { @MainActor in
-                await avPlayer.seek(to: CMTime(seconds: resumeTime, preferredTimescale: 1000))
-                avPlayer.play()
-            }
+            seekCurrentItem(to: resumeTime)
         } else {
             currentTime = 0
-            avPlayer.play()
+            if shouldPlay { avPlayer.play() }
+            else { avPlayer.pause() }
         }
-        isPlaying = true
         duration = TimeInterval(song.duration ?? 0)
         saveState()
         syncNowPlaying()
 
         // "Now playing" scrobble
-        Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
+        if !recovering {
+            Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
+        }
+    }
+
+    private func seekCurrentItem(to seconds: TimeInterval) {
+        guard let item = avPlayer.currentItem else { return }
+        resumeTask?.cancel()
+        resumeTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled, self.activeItem === item,
+                  self.avPlayer.currentItem === item else { return }
+            let finished = await self.avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 1000))
+            guard !Task.isCancelled, self.activeItem === item, self.avPlayer.currentItem === item else { return }
+            self.resumeTask = nil
+            guard finished else {
+                self.handlePlaybackFailure(for: item, error: item.error as NSError?)
+                return
+            }
+            if self.isPlaying { self.avPlayer.play() }
+        }
     }
 
     private func installEndObserver(for item: AVPlayerItem) {
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        removeItemObservers()
+        activeItem = item
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.handleTrackEnd() }
+            Task { @MainActor in
+                guard let self, self.activeItem === item else { return }
+                self.handleTrackEnd()
+            }
+        }
+        failureObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
+        ) { [weak self] notification in
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError
+            Task { @MainActor in self?.handlePlaybackFailure(for: item, error: error) }
+        }
+        stallObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handlePlaybackStall(for: item) }
+        }
+        itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard item.status == .failed else { return }
+                self?.handlePlaybackFailure(for: item, error: item.error as NSError?)
+            }
+        }
+    }
+
+    private func removeItemObservers() {
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
+        if let stallObserver { NotificationCenter.default.removeObserver(stallObserver) }
+        endObserver = nil
+        failureObserver = nil
+        stallObserver = nil
+        itemStatusObserver = nil
+    }
+
+    private func handlePlaybackFailure(for item: AVPlayerItem, error: NSError?) {
+        guard activeItem === item else { return }
+        // Error descriptions and AVAsset URLs can contain Subsonic authentication tokens.
+        // Record only domain/code and state, never a stream URL or arbitrary userInfo.
+        logger.error("Playback failed: domain=\(error?.domain ?? "unknown", privacy: .public) code=\(error?.code ?? 0) position=\(self.currentTime) recoveryAttempts=\(self.recoveryAttempts)")
+        if isPlaying, recoveryAttempts < 1 {
+            recoveryAttempts += 1
+            playCurrent(startAt: currentTime, recovering: true)
+            return
+        }
+        resumeTask?.cancel()
+        resumeTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        activeItem = nil
+        removeItemObservers()
+        avPlayer.pause()
+        clearPreload()
+        avPlayer.removeAllItems()
+        isPlaying = false
+        isBuffering = false
+        playbackError = "Playback stopped. Check your connection and audio output, then press Play to retry."
+        NowPlayingCenter.shared.updatePlaybackAnchor(isPlaying: false, elapsed: currentTime)
+        saveState()
+    }
+
+    private func handlePlaybackStall(for item: AVPlayerItem) {
+        guard activeItem === item, isPlaying else { return }
+        // Each stall gets a deadline from its own playhead. Progress between two stalls
+        // must not cause an older watchdog to suppress recovery for the newer stall.
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        logger.notice("Playback stalled at \(self.currentTime)")
+        isBuffering = true
+        let stalledTime = item.currentTime().seconds
+        // A file stream may pause when its buffer empties. Reassert playback intent so
+        // AVPlayer resumes as data arrives, while allowing its normal buffering policy.
+        avPlayer.play()
+        recoveryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 8_000_000_000) }
+            catch { return }
+            guard let self, !Task.isCancelled, self.activeItem === item, self.isPlaying else { return }
+            self.recoveryTask = nil
+            let time = item.currentTime().seconds
+            self.isBuffering = self.isPlaying && self.avPlayer.timeControlStatus != .playing
+            guard !time.isFinite || !stalledTime.isFinite || time <= stalledTime + 0.1 else { return }
+            self.handlePlaybackFailure(for: item, error: nil)
         }
     }
 
@@ -382,7 +569,7 @@ final class Player: ObservableObject {
         clearPreload()
         let song = queue[nextIdx]
         guard let url = client.streamURL(id: song.id) else { return }
-        let item = AVPlayerItem(url: url)
+        let item = makePlayerItem(url)
         guard avPlayer.canInsert(item, after: avPlayer.currentItem) else { return }
         avPlayer.insert(item, after: avPlayer.currentItem)
         preloadedNextItem = item
@@ -395,8 +582,7 @@ final class Player: ObservableObject {
             // equivalent to `advanceToNextItem()`. If `AVQueuePlayer` has already advanced
             // to the preloaded item at the track boundary but `handleTrackEnd` hasn't run
             // yet to clear our markers, calling `remove` here would silently skip the new
-            // track. Guard against that — just drop our reference; the item is now the
-            // current one and `handleTrackEnd` will reconcile state shortly.
+            // track. Public queue actions reconcile the model before clearing the preload.
             avPlayer.remove(item)
         }
         preloadedNextItem = nil
@@ -409,38 +595,48 @@ final class Player: ObservableObject {
             // AVQueuePlayer pops the played-to-end item from its queue, so a plain
             // `seek(to: .zero)` would no-op against a nil currentItem. Re-load the same
             // queueIndex to start a fresh playback.
-            playCurrent()
+            playCurrent(shouldPlay: isPlaying)
         case .all, .off:
-            // Gapless path: AVQueuePlayer has already advanced to the preloaded item if we
-            // preloaded it. Roll our model forward to match. (Queue mutations clear the
-            // preload, so reaching this branch means the preloaded next is still authoritative.)
-            if let nextIdx = preloadedNextIndex, let preloaded = preloadedNextItem,
-               nextIdx < queue.count {
-                queueIndex = nextIdx
-                let song = queue[queueIndex]
-                currentSong = song
-                hasScrobbledCurrent = false
-                preloadedNextItem = nil
-                preloadedNextIndex = nil
-                installEndObserver(for: preloaded)
-                duration = TimeInterval(song.duration ?? 0)
-                currentTime = 0
-                isPlaying = true
-                syncNowPlaying()
-                if let client = activeClient {
-                    Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
-                }
-                saveState()
-            } else {
-                advanceOrStop()
-            }
+            if !reconcileAutomaticAdvance() { advanceOrStop(shouldPlay: isPlaying) }
         }
     }
 
-    private func advanceOrStop() {
+    /// Reconcile by item identity before a user action can invalidate preload indices.
+    /// KVO and end notifications may both arrive; clearing the markers makes this idempotent.
+    @discardableResult
+    private func reconcileAutomaticAdvance() -> Bool {
+        guard let item = preloadedNextItem, avPlayer.currentItem === item,
+              let index = preloadedNextIndex, queue.indices.contains(index) else { return false }
+        resumeTask?.cancel()
+        resumeTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        preloadedNextItem = nil
+        preloadedNextIndex = nil
+        queueIndex = index
+        let song = queue[index]
+        currentSong = song
+        hasScrobbledCurrent = false
+        recoveryAttempts = 0
+        playbackError = nil
+        installEndObserver(for: item)
+        duration = TimeInterval(song.duration ?? 0)
+        let time = item.currentTime().seconds
+        currentTime = time.isFinite ? max(0, time) : 0
+        if !isPlaying { avPlayer.pause() }
+        isBuffering = isPlaying && avPlayer.timeControlStatus != .playing
+        syncNowPlaying()
+        if let client = activeClient {
+            Task.detached { await Self.scrobble(songID: song.id, submission: false, client: client) }
+        }
+        saveState()
+        return true
+    }
+
+    private func advanceOrStop(shouldPlay: Bool = true) {
         if let next = PlaybackQueueLogic.nextIndex(queue: queue, queueIndex: queueIndex, repeatMode: repeatMode) {
             queueIndex = next
-            playCurrent()
+            playCurrent(shouldPlay: shouldPlay)
         } else {
             stop()
         }
