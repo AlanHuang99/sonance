@@ -141,6 +141,7 @@ git push origin v0.6.0
 6. Type a search query quickly, then replace it with a different query. Only the newest query should remain visible.
 7. Play an album, use Play Next and Add to Queue, reorder queue rows, remove current and non-current rows, then relaunch and confirm the queue restores paused.
 8. Open Now Playing at 900x600, 1200x800, and a wide window. Verify queue, lyrics, mini-player scrubber, and volume controls do not overlap.
+9. During playback, seek near the end of a track and edit the queue as it advances. The displayed track and audio should stay together. Pause immediately after resuming a saved position and confirm audio stays paused.
 
 ## Diagnostics
 
@@ -148,6 +149,19 @@ Debug builds record endpoint request counts through `NetworkDiagnostics`. Counts
 Subsonic endpoint, for example `getAlbumList2`, `getAlbum`, `search3`, and `getCoverArt:300`.
 Use `NetworkDiagnostics.snapshot()` while debugging to compare before/after navigation or scroll
 flows.
+
+Playback failures and stalls are logged under the `Playback` category. To inspect them locally:
+
+```sh
+/usr/bin/log stream --info --style compact \
+  --predicate 'subsystem == "com.alanhuang.Sonance" AND category == "Playback"'
+```
+
+Playback logs include error domains/codes, the playhead, and recovery attempts. They omit
+stream URLs and arbitrary error descriptions because those can contain authentication tokens.
+The player reloads a failed track once at its last position. A stall that makes no progress for
+eight seconds uses the same bounded recovery. Persistent failures preserve the selected track
+and show a message so the user can check the connection/output and press Play to retry.
 
 ## Known Limitations
 

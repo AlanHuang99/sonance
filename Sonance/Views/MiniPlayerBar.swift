@@ -66,14 +66,25 @@ struct MiniPlayerBar: View {
                             tooltip: song.albumId == nil ? nil : "Go to Album",
                             action: { goToAlbum(for: song) }
                         )
-                        HoverLinkText(
-                            text: song.artist ?? "",
-                            font: .caption,
-                            color: .secondary,
-                            isEnabled: song.artistId != nil,
-                            tooltip: song.artistId == nil ? nil : "Go to Artist",
-                            action: { goToArtist(for: song) }
-                        )
+                        if let error = player.playbackError {
+                            Label("Playback stopped", systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .help(error)
+                        } else if player.isBuffering {
+                            Text("Buffering…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            HoverLinkText(
+                                text: song.artist ?? "",
+                                font: .caption,
+                                color: .secondary,
+                                isEnabled: song.artistId != nil,
+                                tooltip: song.artistId == nil ? nil : "Go to Artist",
+                                action: { goToArtist(for: song) }
+                            )
+                        }
                     }
                     .frame(minWidth: 120, maxWidth: 220, alignment: .leading)
                     .layoutPriority(2)
