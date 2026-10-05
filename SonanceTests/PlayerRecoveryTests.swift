@@ -165,10 +165,15 @@ final class PlayerRecoveryTests: XCTestCase {
         try storePausedState(position: 12)
         player.restorePaused(client: client())
         player.togglePlayPause()
-        await drainCallbacks()
+        await waitForSeeks(backend)
         player.togglePlayPause()
+        let unexpectedResume = expectation(description: "a cancelled resume must keep playback paused")
+        unexpectedResume.isInverted = true
+        unexpectedResume.assertForOverFulfill = false
+        backend.onPlay = { unexpectedResume.fulfill() }
+        defer { backend.onPlay = nil }
         backend.finishSeeks()
-        await drainCallbacks()
+        await fulfillment(of: [unexpectedResume], timeout: 0.5)
 
         XCTAssertFalse(player.isPlaying)
         XCTAssertEqual(backend.rate, 0)
@@ -183,11 +188,15 @@ final class PlayerRecoveryTests: XCTestCase {
         try storePausedState(position: 12)
         player.restorePaused(client: client())
         player.togglePlayPause()
-        await drainCallbacks()
+        await waitForSeeks(backend)
         player.seek(to: 20)
-        await drainCallbacks()
+        await waitForSeeks(backend, count: 2)
+        let resumed = expectation(description: "the replacement seek starts playback")
+        resumed.assertForOverFulfill = false
+        backend.onPlay = { resumed.fulfill() }
+        defer { backend.onPlay = nil }
         backend.finishSeeks()
-        await drainCallbacks()
+        await fulfillment(of: [resumed], timeout: 3)
 
         XCTAssertTrue(player.isPlaying)
         XCTAssertEqual(backend.rate, 1)
@@ -202,11 +211,17 @@ final class PlayerRecoveryTests: XCTestCase {
         try storePausedState(position: 12)
         player.restorePaused(client: client())
         player.togglePlayPause()
-        await drainCallbacks()
+        await waitForSeeks(backend)
         player.jumpTo(1)
         player.togglePlayPause()
+        let unexpectedResume = expectation(description: "the old seek must not start the replacement track")
+        unexpectedResume.isInverted = true
+        unexpectedResume.assertForOverFulfill = false
+        // Observe new play requests, not delayed rate KVO from jumpTo's earlier play.
+        backend.onPlay = { unexpectedResume.fulfill() }
+        defer { backend.onPlay = nil }
         backend.finishSeeks()
-        await drainCallbacks()
+        await fulfillment(of: [unexpectedResume], timeout: 0.5)
 
         XCTAssertEqual(player.currentSong?.id, "b")
         XCTAssertFalse(player.isPlaying)
@@ -245,14 +260,23 @@ final class PlayerRecoveryTests: XCTestCase {
         try storePausedState(position: 12)
         player.restorePaused(client: client())
         player.togglePlayPause()
-        await drainCallbacks()
+        await waitForSeeks(backend)
         let firstItem = try XCTUnwrap(backend.currentItem)
+        let retry = expectation(description: "a rejected resume seek reloads the item")
+        retry.assertForOverFulfill = false
+        let observation = backend.observe(\.currentItem, options: [.new]) { backend, _ in
+            if let item = backend.currentItem, item !== firstItem { retry.fulfill() }
+        }
+        defer { observation.invalidate() }
         backend.finishSeeks(success: false)
-        await drainCallbacks()
+        await fulfillment(of: [retry], timeout: 3)
         XCTAssertFalse(backend.currentItem === firstItem, "A rejected resume seek must trigger recovery")
-        await drainCallbacks()
+        await waitForSeeks(backend)
+        let failure = expectation(description: "a second rejected seek reports an error")
+        let subscription = player.$playbackError.compactMap { $0 }.prefix(1).sink { _ in failure.fulfill() }
+        defer { subscription.cancel() }
         backend.finishSeeks(success: false)
-        await drainCallbacks()
+        await fulfillment(of: [failure], timeout: 3)
         XCTAssertFalse(player.isPlaying)
         XCTAssertNotNil(player.playbackError)
         XCTAssertNil(backend.currentItem)
@@ -391,6 +415,14 @@ final class PlayerRecoveryTests: XCTestCase {
         }
     }
 
+    @MainActor
+    private func waitForSeeks(_ backend: HoldingSeekQueuePlayer, count: Int = 1) async {
+        let pending = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in backend.pendingSeekCount >= count }, object: nil
+        )
+        await fulfillment(of: [pending], timeout: 3)
+    }
+
     private func client() -> SubsonicClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PlaybackStubURLProtocol.self]
@@ -409,15 +441,49 @@ final class PlayerRecoveryTests: XCTestCase {
 /// Only hold the external AVFoundation completion; queue membership, playback rate,
 /// and the Player state machine stay real so the race can be exercised deterministically.
 private final class HoldingSeekQueuePlayer: AVQueuePlayer {
+    private let completionLock = NSLock()
     private var completions: [@Sendable (Bool) -> Void] = []
+    private var playObserver: (@Sendable () -> Void)?
+
+    var onPlay: (@Sendable () -> Void)? {
+        get {
+            completionLock.lock()
+            defer { completionLock.unlock() }
+            return playObserver
+        }
+        set {
+            completionLock.lock()
+            playObserver = newValue
+            completionLock.unlock()
+        }
+    }
+
+    override func play() {
+        super.play()
+        onPlay?()
+    }
+
+    var pendingSeekCount: Int {
+        completionLock.lock()
+        defer { completionLock.unlock() }
+        return completions.count
+    }
 
     override func seek(to time: CMTime, completionHandler: @escaping @Sendable (Bool) -> Void) {
-        completions.append(completionHandler)
+        // Move the real playhead, then let the test control when the async caller resumes.
+        super.seek(to: time) { [weak self] _ in
+            guard let self else { return }
+            self.completionLock.lock()
+            self.completions.append(completionHandler)
+            self.completionLock.unlock()
+        }
     }
 
     func finishSeeks(success: Bool = true) {
+        completionLock.lock()
         let pending = completions
         completions.removeAll()
+        completionLock.unlock()
         pending.forEach { $0(success) }
     }
 }

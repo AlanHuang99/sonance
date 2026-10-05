@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-05
+
 ### Fixed
 
 - Playback failures now retry once at the saved position and show a visible error when recovery fails, instead of leaving the player silently stuck.
